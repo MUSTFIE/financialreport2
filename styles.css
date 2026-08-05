@@ -37,11 +37,27 @@ header {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  gap: 12px;
 }
 
 header h1 {
   font-size: 1.5rem;
   font-weight: 700;
+  flex-shrink: 0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rates-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  line-height: 1.4;
 }
 
 /* Buttons */
@@ -149,7 +165,7 @@ header h1 {
 
 .chart-container {
   position: relative;
-  height: 240px;
+  height: 320px;
 }
 
 .empty-hint {
