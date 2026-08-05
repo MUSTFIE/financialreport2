@@ -3,49 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>雲端記帳本</title>
-  <!-- Firebase 9.22.2 Compat SDK -->
+  <title>雲端記帳本 - 月度</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-  <link rel="stylesheet" href="./css/style.css">
+  <link rel="stylesheet" href="style.css"> <!-- 共用樣式 -->
 </head>
 <body>
-<div class="app-container">
-  <!-- Google 登入狀態列 -->
-  <div class="auth-bar" id="auth-bar">
-    <div class="auth-user-info" id="auth-user-info">
-      <span>🔒 請登入以同步個人雲端資料</span>
-    </div>
-    <div id="auth-action-container">
-      <button type="button" class="btn-auth" onclick="loginWithGoogle()">Google 登入</button>
-    </div>
-  </div>
-
-  <div class="nav-tabs">
-    <button class="nav-btn active" id="btn-tab-monthly" onclick="switchTab('monthly')"><span class="nav-icon">📅</span>月度</button>
-    <button class="nav-btn" id="btn-tab-yearly" onclick="switchTab('yearly')"><span class="nav-icon">📊</span>年度</button>
-    <button class="nav-btn" id="btn-tab-bank" onclick="switchTab('bank')"><span class="nav-icon">🏛️</span>銀行</button>
-    <button class="nav-btn" id="btn-tab-credit" onclick="switchTab('credit')"><span class="nav-icon">💳</span>信用卡</button>
-    <button class="nav-btn" id="btn-tab-mpf" onclick="switchTab('mpf')"><span class="nav-icon">🛡️</span>強積金</button>
-    <button class="nav-btn" id="btn-tab-asset" onclick="switchTab('asset')"><span class="nav-icon">💎</span>總資產</button>
-  </div>
-  
-  <div class="sync-status" id="sync-status-badge">☁️ 等待 Firebase 登入驗證...</div>
-  <div class="rate-badge">💱 匯率基準：1 HKD = 1.0314 MOP ｜ 1 CNY = 1.13 MOP</div>
-
-  <div id="tab-monthly-content" class="tab-content active"></div>
-  <div id="tab-yearly-content" class="tab-content"></div>
-  <div id="tab-bank-content" class="tab-content"></div>
-  <div id="tab-credit-content" class="tab-content"></div>
-  <div id="tab-mpf-content" class="tab-content"></div>
-  <div id="tab-asset-content" class="tab-content"></div>
+<div class="app-container" id="main-container">
+  <!-- 動態載入導航與 Auth -->
 </div>
-
-<!-- 載入模組化 JavaScript 檔案 -->
-<script src="./js/firebase-config.js"></script>
-<script src="./js/app.js"></script>
-<script src="./js/bank.js"></script>
-<script src="./js/asset-mpf.js"></script>
+<script src="app.js"></script>
+<script>
+  document.getElementById('main-container').innerHTML = `
+    ${renderAuthBar()}
+    ${renderNavTabs('monthly')}
+    <!-- 月度頁面專屬 HTML 內容 -->
+    <div class="dashboard">
+      <div class="dashboard-header">
+        <span class="label">當月總結餘 (MOP)</span>
+        <div class="controls-group">
+          <input type="month" id="filter-month" class="picker-dashboard">
+          <button type="button" class="btn-export" onclick="exportMonthCSV()">📥 CSV</button>
+        </div>
+      </div>
+      <div class="total-balance" id="month-net-balance">MOP$ 0.00</div>
+    </div>
+    <!-- 其他月度表單與列表結構... -->
+  `;
+  initAuthListener(() => {
+    // 初始化月度頁面渲染
+  });
+</script>
 </body>
 </html>
