@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>記帳本</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>💰 記帳本</h1>
+      <button id="btn-add" class="btn primary">＋ 新增紀錄</button>
+    </header>
+
+    <!-- 月份導航 -->
+    <div class="month-nav">
+      <button id="btn-prev-month" class="btn-icon">‹</button>
+      <h2 id="current-month-label">2026年8月</h2>
+      <button id="btn-next-month" class="btn-icon">›</button>
+    </div>
+
+    <!-- 本月摘要 -->
+    <div class="summary-cards">
+      <div class="card income">
+        <div class="label">本月收入</div>
+        <div class="value" id="summary-income">$0</div>
+      </div>
+      <div class="card expense">
+        <div class="label">本月支出</div>
+        <div class="value" id="summary-expense">$0</div>
+      </div>
+      <div class="card balance">
+        <div class="label">結餘</div>
+        <div class="value" id="summary-balance">$0</div>
+      </div>
+    </div>
+
+    <!-- 圖表區 -->
+    <section class="chart-section">
+      <h3>本月支出分類</h3>
+      <div class="chart-container">
+        <canvas id="categoryChart"></canvas>
+      </div>
+      <div id="no-chart-data" class="empty-hint" style="display:none;">本月尚無支出資料</div>
+    </section>
+
+    <!-- 紀錄列表 -->
+    <section class="records-section">
+      <h3>本月紀錄</h3>
+      <div id="records-list"></div>
+      <div id="no-records" class="empty-hint">本月尚無紀錄，點擊上方按鈕新增</div>
+    </section>
+  </div>
+
+  <!-- 新增 / 編輯 彈出視窗 -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">新增紀錄</h3>
+        <button id="btn-close-modal" class="btn-icon">×</button>
+      </div>
+      <form id="record-form">
+        <input type="hidden" id="edit-id">
+
+        <div class="form-row">
+          <label>類型</label>
+          <div class="type-toggle">
+            <button type="button" class="type-btn active" data-type="expense">支出</button>
+            <button type="button" class="type-btn" data-type="income">收入</button>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label for="amount">金額</label>
+          <div class="amount-row">
+            <select id="currency" required>
+              <option value="TWD">TWD 新台幣</option>
+              <option value="USD">USD 美元</option>
+              <option value="EUR">EUR 歐元</option>
+              <option value="JPY">JPY 日圓</option>
+              <option value="CNY">CNY 人民幣</option>
+              <option value="HKD">HKD 港幣</option>
+              <option value="GBP">GBP 英鎊</option>
+            </select>
+            <input type="number" id="amount" step="0.01" min="0.01" placeholder="0.00" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label for="date">日期</label>
+          <input type="date" id="date" required>
+        </div>
+
+        <div class="form-row">
+          <label for="category">分類</label>
+          <select id="category" required>
+            <option value="餐飲">餐飲</option>
+            <option value="交通">交通</option>
+            <option value="購物">購物</option>
+            <option value="娛樂">娛樂</option>
+            <option value="居住">居住</option>
+            <option value="醫療">醫療</option>
+            <option value="教育">教育</option>
+            <option value="薪水">薪水</option>
+            <option value="投資">投資</option>
+            <option value="其他">其他</option>
+          </select>
+        </div>
+
+        <div class="form-row hidden" id="custom-category-row">
+          <label for="custom-category">自訂分類</label>
+          <input type="text" id="custom-category" placeholder="輸入自訂分類名稱">
+        </div>
+
+        <div class="form-row">
+          <label for="payment">支付方式</label>
+          <select id="payment" required>
+            <option value="現金">現金</option>
+            <option value="信用卡">信用卡</option>
+            <option value="金融卡">金融卡</option>
+            <option value="電子支付">電子支付 (Line Pay / 街口等)</option>
+            <option value="轉帳">轉帳</option>
+            <option value="其他">其他</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label for="note">備註</label>
+          <input type="text" id="note" placeholder="選填">
+        </div>
+
+        <div class="form-actions">
+          <button type="button" id="btn-cancel" class="btn">取消</button>
+          <button type="submit" class="btn primary">儲存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
