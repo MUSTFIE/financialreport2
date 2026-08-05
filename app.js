@@ -1,180 +1,176 @@
-const firebaseConfig = {
-  apiKey: "AIzaSyDARQel_FE1owKu7vcwj5Vb2mQQPHbdJUg",
-  authDomain: "budget-tracker-f6987.firebaseapp.com",
-  databaseURL: "https://budget-tracker-f6987-default-rtdb.asia-southeast1.firebasedatabase.app/",
-  projectId: "budget-tracker-f6987",
-  storageBucket: "budget-tracker-f6987.firebasestorage.app",
-  messagingSenderId: "95285914076",
-  appId: "1:95285914076:web:44f6058eedbabc858cc719"
-};
+// 狀態管理
+let records = JSON.parse(localStorage.getItem('expenseRecords')) || [];
+let chartInstance = null;
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-const auth = firebase.auth();
+// DOM 元素選取
+const monthFilter = document.getElementById('monthFilter');
+const recordList = document.getElementById('recordList');
+const openModalBtn = document.getElementById('openModalBtn');
+const closeModalBtn = document.getElementById('closeModalBtn');
+const recordModal = document.getElementById('recordModal');
+const recordForm = document.getElementById('recordForm');
+const categorySelect = document.getElementById('category');
+const customCategoryInput = document.getElementById('customCategory');
 
-let dbRef = null;
-let dbListener = null;
+// 初始化
+function init() {
+    // 設定預設月份為當前月份 (格式: YYYY-MM)
+    const today = new Date();
+    const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    monthFilter.value = currentMonth;
+    
+    // 設定新增紀錄的預設日期為今天
+    document.getElementById('date').value = today.toISOString().split('T')[0];
 
-let cloudData = {
-  records: [],
-  customBankList: [],
-  bankBaseBalances: {
-    '澳門螞蟻銀行': { MOP: 0, HKD: 0, CNY: 0 },
-    '澳門中國銀行': { MOP: 0, HKD: 0, CNY: 0 },
-    '澳門工商銀行': { MOP: 0, HKD: 0, CNY: 0 },
-    '澳門發展銀行': { MOP: 0, HKD: 0, CNY: 0 },
-    '香港恒生銀行': { MOP: 0, HKD: 0, CNY: 0 }
-  },
-  creditBaseBalances: {
-    '澳門中國銀行(信用卡)': { MOP: 0, HKD: 0, CNY: 0 },
-    '香港中國銀行(信用卡)': { MOP: 0, HKD: 0, CNY: 0 },
-    'DBS(信用卡)': { MOP: 0, HKD: 0, CNY: 0 },
-    'AE(信用卡)': { MOP: 0, HKD: 0, CNY: 0 }
-  },
-  globalDeductions: [],
-  mpfAccounts: [
-    { id: '1', name: '宏利強積金主戶口', initialBalance: 0, balance: 50000 },
-    { id: '2', name: '匯豐強積金戶口', initialBalance: 0, balance: 20000 }
-  ],
-  mpfMonthlyRecords: [],
-  customCategories: [],
-  deletedDefaultCategories: []
-};
-
-const EXCHANGE_RATES = { MOP: 1.0, HKD: 1.0314, CNY: 1.13 };
-const BINDING_MAP = { 'MPay': '澳門螞蟻銀行', 'BOC Pay': '澳門中國銀行' };
-const DEFAULT_BANK_LIST = ['澳門螞蟻銀行', '澳門中國銀行', '澳門工商銀行', '澳門發展銀行', '香港恒生銀行'];
-const CREDIT_LIST = ['澳門中國銀行(信用卡)', '香港中國銀行(信用卡)', 'DBS(信用卡)', 'AE(信用卡)'];
-
-function formatMoney(num) {
-  if (isNaN(num)) return '0.00';
-  return Number(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    updateDashboard();
 }
 
-function getBankList() {
-  const custom = cloudData.customBankList || [];
-  return [...DEFAULT_BANK_LIST, ...custom];
-}
+// 監聽月份切換
+monthFilter.addEventListener('change', updateDashboard);
 
-function loginWithGoogle() {
-  const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithPopup(provider).catch((error) => {
-    alert("Google 登入失敗：" + error.message);
-  });
-}
+// 彈出視窗控制
+openModalBtn.addEventListener('click', () => recordModal.classList.remove('hidden'));
+closeModalBtn.addEventListener('click', () => recordModal.classList.add('hidden'));
 
-function logout() {
-  auth.signOut().then(() => { window.location.reload(); });
-}
+// 點擊視窗外部關閉
+window.addEventListener('click', (e) => {
+    if (e.target === recordModal) {
+        recordModal.classList.add('hidden');
+    }
+});
 
-// 共用導航列產生器
-function renderNavTabs(activeTab) {
-  const tabs = [
-    { id: 'monthly', name: '月度', icon: '📅', url: 'index.html' },
-    { id: 'yearly', name: '年度', icon: '📊', url: 'yearly.html' },
-    { id: 'bank', name: '銀行', icon: '🏛️', url: 'bank.html' },
-    { id: 'credit', name: '信用卡', icon: '💳', url: 'credit.html' },
-    { id: 'mpf', name: '強積金', icon: '🛡️', url: 'mpf.html' },
-    { id: 'asset', name: '總資產', icon: '💎', url: 'asset.html' }
-  ];
-
-  let html = `<div class="nav-tabs">`;
-  tabs.forEach(t => {
-    const active = t.id === activeTab ? 'active' : '';
-    html += `<button class="nav-btn ${active}" onclick="location.href='${t.url}'"><span class="nav-icon">${t.icon}</span>${t.name}</button>`;
-  });
-  html += `</div>`;
-  return html;
-}
-
-// 共用 Auth 狀態列
-function renderAuthBar() {
-  return `
-    <div class="auth-bar" id="auth-bar">
-      <div class="auth-user-info" id="auth-user-info"><span>🔒 請登入以同步個人雲端資料</span></div>
-      <div id="auth-action-container"><button type="button" class="btn-auth" onclick="loginWithGoogle()">Google 登入</button></div>
-    </div>
-    <div class="sync-status" id="sync-status-badge">☁️ 等待 Firebase 登入驗證...</div>
-    <div class="rate-badge">💱 匯率基準：1 HKD = 1.0314 MOP ｜ 1 CNY = 1.13 MOP</div>
-  `;
-}
-
-function initAuthListener(callback) {
-  auth.onAuthStateChanged((user) => {
-    const userInfoEl = document.getElementById('auth-user-info');
-    const actionContainerEl = document.getElementById('auth-action-container');
-    const syncBadge = document.getElementById('sync-status-badge');
-
-    if (dbRef && dbListener) { dbRef.off('value', dbListener); }
-
-    if (user) {
-      if (userInfoEl) {
-        userInfoEl.innerHTML = `
-          <img src="${user.photoURL || ''}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" onerror="this.style.display='none'">
-          <span>${user.displayName || user.email}</span>
-        `;
-      }
-      if (actionContainerEl) actionContainerEl.innerHTML = `<button type="button" class="btn-auth logout" onclick="logout()">登出</button>`;
-      
-      dbRef = db.ref(`users/${user.uid}/cloud_accounting_data`);
-      if (syncBadge) syncBadge.textContent = '☁️ 正在連線至你的 Firebase 雲端...';
-
-      dbListener = dbRef.on('value', (snapshot) => {
-        const val = snapshot.val();
-        if (val) {
-          cloudData = val;
-          if (!cloudData.customBankList) cloudData.customBankList = [];
-          if (!cloudData.deletedDefaultCategories) cloudData.deletedDefaultCategories = [];
-          if (!cloudData.creditBaseBalances) cloudData.creditBaseBalances = {
-            '澳門中國銀行(信用卡)': { MOP: 0, HKD: 0, CNY: 0 },
-            '香港中國銀行(信用卡)': { MOP: 0, HKD: 0, CNY: 0 },
-            'DBS(信用卡)': { MOP: 0, HKD: 0, CNY: 0 },
-            'AE(信用卡)': { MOP: 0, HKD: 0, CNY: 0 }
-          };
-        } else {
-          syncToFirebase();
-        }
-        if (callback) callback();
-      });
+// 分類選擇監聽 (處理「其他」選項)
+categorySelect.addEventListener('change', (e) => {
+    if (e.target.value === '其他') {
+        customCategoryInput.classList.remove('hidden');
+        customCategoryInput.required = true;
     } else {
-      if (userInfoEl) userInfoEl.innerHTML = `<span>🔒 請登入以同步個人雲端資料</span>`;
-      if (actionContainerEl) actionContainerEl.innerHTML = `<button type="button" class="btn-auth" onclick="loginWithGoogle()">Google 登入</button>`;
-      if (syncBadge) syncBadge.textContent = '⚠️ 尚未登入，資料僅暫存於本地';
-      
-      dbRef = db.ref('cloud_accounting_data_guest');
-      dbRef.once('value').then((snapshot) => {
-        const val = snapshot.val();
-        if (val) {
-          cloudData = val;
-          if (!cloudData.customBankList) cloudData.customBankList = [];
-          if (!cloudData.deletedDefaultCategories) cloudData.deletedDefaultCategories = [];
+        customCategoryInput.classList.add('hidden');
+        customCategoryInput.required = false;
+        customCategoryInput.value = '';
+    }
+});
+
+// 提交表單新增紀錄
+recordForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const date = document.getElementById('date').value;
+    const currency = document.getElementById('currency').value;
+    const amount = parseFloat(document.getElementById('amount').value);
+    const baseCategory = document.getElementById('category').value;
+    const customCategory = document.getElementById('customCategory').value;
+    const paymentMethod = document.getElementById('paymentMethod').value;
+
+    const finalCategory = baseCategory === '其他' ? customCategory : baseCategory;
+
+    const newRecord = {
+        id: Date.now().toString(),
+        date,
+        currency,
+        amount,
+        category: finalCategory,
+        paymentMethod
+    };
+
+    records.push(newRecord);
+    localStorage.setItem('expenseRecords', JSON.stringify(records));
+    
+    // 重置表單並關閉視窗
+    recordForm.reset();
+    document.getElementById('date').value = new Date().toISOString().split('T')[0];
+    customCategoryInput.classList.add('hidden');
+    recordModal.classList.add('hidden');
+
+    updateDashboard();
+});
+
+// 更新儀表板 (列表與圖表)
+function updateDashboard() {
+    const selectedMonth = monthFilter.value; // YYYY-MM
+    
+    // 過濾出當月的紀錄
+    const monthlyRecords = records.filter(record => record.date.startsWith(selectedMonth));
+    
+    // 依日期排序 (最新的在前面)
+    monthlyRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    renderRecords(monthlyRecords);
+    renderChart(monthlyRecords);
+}
+
+// 渲染紀錄列表
+function renderRecords(monthlyRecords) {
+    recordList.innerHTML = '';
+    
+    if (monthlyRecords.length === 0) {
+        recordList.innerHTML = '<li style="text-align:center; padding: 20px; color: #999;">本月尚無紀錄</li>';
+        return;
+    }
+
+    monthlyRecords.forEach(record => {
+        const li = document.createElement('li');
+        li.className = 'record-item';
+        li.innerHTML = `
+            <div class="record-info">
+                <span class="record-title">${record.category}</span>
+                <span class="record-meta">${record.date} · ${record.paymentMethod}</span>
+            </div>
+            <div class="record-amount">
+                ${record.currency} ${record.amount.toFixed(2)}
+            </div>
+        `;
+        recordList.appendChild(li);
+    });
+}
+
+// 渲染圖表
+function renderChart(monthlyRecords) {
+    const ctx = document.getElementById('expenseChart').getContext('2d');
+    
+    // 計算各分類總和 (為了簡化圖表，這裡暫不處理不同貨幣的匯率轉換，直接將數字相加)
+    // 如果需要更精準的報表，建議後續可增加匯率轉換邏輯
+    const categoryTotals = {};
+    monthlyRecords.forEach(record => {
+        if (!categoryTotals[record.category]) {
+            categoryTotals[record.category] = 0;
         }
-        if (callback) callback();
-      });
+        categoryTotals[record.category] += record.amount;
+    });
+
+    const labels = Object.keys(categoryTotals);
+    const data = Object.values(categoryTotals);
+
+    // 如果圖表已存在，先銷毀才能重新繪製
+    if (chartInstance) {
+        chartInstance.destroy();
     }
-  });
-}
 
-function syncToFirebase() {
-  if (!dbRef) return;
-  dbRef.set(cloudData).then(() => {
-    const badge = document.getElementById('sync-status-badge');
-    if (badge) {
-      badge.textContent = '☁️ 雲端同步完成 (實時多機互聯)';
-      badge.style.background = '#D1FAE5';
-      badge.style.color = '#065F46';
+    if (labels.length === 0) {
+        // 沒有資料時不顯示圖表內容，或可自行擴充顯示「無資料」圖片
+        return;
     }
-  });
+
+    chartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: [
+                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right' }
+            }
+        }
+    });
 }
 
-function convertToMOP(amount, currency) {
-  return amount * (EXCHANGE_RATES[currency] || 1.0);
-}
-
-function loadRecords() { return cloudData.records || []; }
-function saveRecords(records) { cloudData.records = records; syncToFirebase(); }
-function loadBankBaseBalances() { return cloudData.bankBaseBalances; }
-function saveBankBaseBalances(data) { cloudData.bankBaseBalances = data; syncToFirebase(); }
-function loadCreditBaseBalances() { return cloudData.creditBaseBalances; }
-function saveCreditBaseBalances(data) { cloudData.creditBaseBalances = data; syncToFirebase(); }
-function getActualAccount(accountName) { return BINDING_MAP[accountName] || accountName; }
+// 啟動 App
+init();
