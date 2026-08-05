@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>雲端記帳本 - 信用卡</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-container" id="main-container"></div>
+<script src="app.js"></script>
+<script>
+  document.getElementById('main-container').innerHTML = `
+    ${renderAuthBar()}
+    ${renderNavTabs('credit')}
+    <div class="dashboard" style="background: linear-gradient(135deg, #D946EF, #BE185D);">
+      <div class="dashboard-header"><span class="label">信用卡未清帳款總額 (折合 MOP)</span></div>
+      <div class="total-balance" id="credit-total-balance">MOP$ 0.00</div>
+    </div>
+    <div id="credit-cards-editor-container"></div>
+  `;
+  initAuthListener(() => { /* 初始化信用卡資料 */ });
+</script>
+</body>
+</html>
