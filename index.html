@@ -11,7 +11,10 @@
   <div class="app">
     <header>
       <h1>💰 記帳本</h1>
-      <button id="btn-add" class="btn primary">＋ 新增紀錄</button>
+      <div class="header-actions">
+        <button id="btn-rates" class="btn" title="匯率設定">💱 匯率</button>
+        <button id="btn-add" class="btn primary">＋ 新增紀錄</button>
+      </div>
     </header>
 
     <!-- 月份導航 -->
@@ -24,22 +27,22 @@
     <!-- 本月摘要 -->
     <div class="summary-cards">
       <div class="card income">
-        <div class="label">本月收入</div>
-        <div class="value" id="summary-income">$0</div>
+        <div class="label">本月收入 (MOP)</div>
+        <div class="value" id="summary-income">MOP 0</div>
       </div>
       <div class="card expense">
-        <div class="label">本月支出</div>
-        <div class="value" id="summary-expense">$0</div>
+        <div class="label">本月支出 (MOP)</div>
+        <div class="value" id="summary-expense">MOP 0</div>
       </div>
       <div class="card balance">
-        <div class="label">結餘</div>
-        <div class="value" id="summary-balance">$0</div>
+        <div class="label">結餘 (MOP)</div>
+        <div class="value" id="summary-balance">MOP 0</div>
       </div>
     </div>
 
     <!-- 圖表區 -->
     <section class="chart-section">
-      <h3>本月支出分類</h3>
+      <h3>本月支出分類 (MOP)</h3>
       <div class="chart-container">
         <canvas id="categoryChart"></canvas>
       </div>
@@ -76,13 +79,9 @@
           <label for="amount">金額</label>
           <div class="amount-row">
             <select id="currency" required>
-              <option value="TWD">TWD 新台幣</option>
-              <option value="USD">USD 美元</option>
-              <option value="EUR">EUR 歐元</option>
-              <option value="JPY">JPY 日圓</option>
-              <option value="CNY">CNY 人民幣</option>
+              <option value="MOP">MOP 澳門幣</option>
               <option value="HKD">HKD 港幣</option>
-              <option value="GBP">GBP 英鎊</option>
+              <option value="CNY">CNY 人民幣</option>
             </select>
             <input type="number" id="amount" step="0.01" min="0.01" placeholder="0.00" required>
           </div>
@@ -96,16 +95,22 @@
         <div class="form-row">
           <label for="category">分類</label>
           <select id="category" required>
-            <option value="餐飲">餐飲</option>
-            <option value="交通">交通</option>
-            <option value="購物">購物</option>
-            <option value="娛樂">娛樂</option>
-            <option value="居住">居住</option>
-            <option value="醫療">醫療</option>
-            <option value="教育">教育</option>
-            <option value="薪水">薪水</option>
-            <option value="投資">投資</option>
-            <option value="其他">其他</option>
+            <option value="餐飲">🍔 餐飲</option>
+            <option value="交通">🚗 交通</option>
+            <option value="購物">🛍️ 購物</option>
+            <option value="娛樂">🎮 娛樂</option>
+            <option value="居住">🏠 居住</option>
+            <option value="母嬰">👶 母嬰</option>
+            <option value="保險費">🛡️ 保險費</option>
+            <option value="學貸">🎓 學貸</option>
+            <option value="生活費">💵 生活費</option>
+            <option value="薪資">💼 薪資</option>
+            <option value="電話費">📞 電話費</option>
+            <option value="電費">⚡ 電費</option>
+            <option value="淘寶">🛒 淘寶</option>
+            <option value="上網費">🌐 上網費</option>
+            <option value="醫療">🏥 醫療</option>
+            <option value="其他">🏷️ 其他</option>
           </select>
         </div>
 
@@ -134,6 +139,35 @@
         <div class="form-actions">
           <button type="button" id="btn-cancel" class="btn">取消</button>
           <button type="submit" class="btn primary">儲存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 匯率設定彈出視窗 -->
+  <div id="rates-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>匯率設定</h3>
+        <button id="btn-close-rates" class="btn-icon">×</button>
+      </div>
+      <form id="rates-form">
+        <p class="rates-hint">設定其他貨幣兌 MOP 的匯率。摘要與圖表會依此換算成澳門幣。</p>
+        <div class="form-row">
+          <label for="rate-hkd">1 HKD = ? MOP</label>
+          <input type="number" id="rate-hkd" step="0.0001" min="0.0001" required>
+        </div>
+        <div class="form-row">
+          <label for="rate-cny">1 CNY = ? MOP</label>
+          <input type="number" id="rate-cny" step="0.0001" min="0.0001" required>
+        </div>
+        <div class="form-row">
+          <label>1 MOP = 1 MOP</label>
+          <input type="text" value="1（基準貨幣，不可改）" disabled>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="btn-reset-rates" class="btn">還原預設</button>
+          <button type="submit" class="btn primary">儲存匯率</button>
         </div>
       </form>
     </div>
