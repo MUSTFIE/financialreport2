@@ -1,39 +1,97 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>雲端記帳本 - 月度</title>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-  <link rel="stylesheet" href="style.css"> <!-- 共用樣式 -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>個人記帳 Web App</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 引入 Chart.js 用於繪製圖表 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-<div class="app-container" id="main-container">
-  <!-- 動態載入導航與 Auth -->
-</div>
-<script src="app.js"></script>
-<script>
-  document.getElementById('main-container').innerHTML = `
-    ${renderAuthBar()}
-    ${renderNavTabs('monthly')}
-    <!-- 月度頁面專屬 HTML 內容 -->
-    <div class="dashboard">
-      <div class="dashboard-header">
-        <span class="label">當月總結餘 (MOP)</span>
-        <div class="controls-group">
-          <input type="month" id="filter-month" class="picker-dashboard">
-          <button type="button" class="btn-export" onclick="exportMonthCSV()">📥 CSV</button>
-        </div>
-      </div>
-      <div class="total-balance" id="month-net-balance">MOP$ 0.00</div>
+    <div class="container">
+        <header>
+            <h1>記帳本</h1>
+            <div class="month-selector">
+                <label for="monthFilter">選擇月份：</label>
+                <input type="month" id="monthFilter">
+            </div>
+        </header>
+
+        <main>
+            <!-- 支出分佈圖表區 -->
+            <section class="chart-section">
+                <h2>當月支出分佈</h2>
+                <div class="chart-container">
+                    <canvas id="expenseChart"></canvas>
+                </div>
+            </section>
+
+            <!-- 紀錄列表區 -->
+            <section class="records-section">
+                <div class="records-header">
+                    <h2>支出紀錄</h2>
+                    <button id="openModalBtn" class="primary-btn">＋ 新增紀錄</button>
+                </div>
+                <ul id="recordList" class="record-list">
+                    <!-- 紀錄會由 JS 動態生成在這裡 -->
+                </ul>
+            </section>
+        </main>
     </div>
-    <!-- 其他月度表單與列表結構... -->
-  `;
-  initAuthListener(() => {
-    // 初始化月度頁面渲染
-  });
-</script>
+
+    <!-- 新增紀錄彈出視窗 (Modal) -->
+    <div id="recordModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" id="closeModalBtn">&times;</span>
+            <h2>新增紀錄</h2>
+            <form id="recordForm">
+                <div class="form-group">
+                    <label for="date">日期：</label>
+                    <input type="date" id="date" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="amount">金額：</label>
+                    <div class="amount-input-group">
+                        <select id="currency">
+                            <option value="MOP">MOP</option>
+                            <option value="HKD">HKD</option>
+                            <option value="CNY">CNY</option>
+                        </select>
+                        <input type="number" id="amount" step="0.1" min="0" required placeholder="0.00">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="category">分類：</label>
+                    <select id="category">
+                        <option value="飲食">飲食</option>
+                        <option value="交通">交通</option>
+                        <option value="購物">購物</option>
+                        <option value="居住">居住</option>
+                        <option value="其他">其他 (自行輸入)</option>
+                    </select>
+                    <!-- 當選擇其他時才會顯示這個輸入框 -->
+                    <input type="text" id="customCategory" class="hidden" placeholder="請輸入自訂分類">
+                </div>
+
+                <div class="form-group">
+                    <label for="paymentMethod">支付方式：</label>
+                    <select id="paymentMethod">
+                        <option value="現金">現金</option>
+                        <option value="信用卡">信用卡</option>
+                        <option value="MPay">MPay</option>
+                        <option value="支付寶">支付寶</option>
+                        <option value="微信支付">微信支付</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="submit-btn">儲存紀錄</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
