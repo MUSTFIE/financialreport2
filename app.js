@@ -1,5 +1,60 @@
 // ========== 資料管理 ==========
 const STORAGE_KEY = 'accounting_records_v1';
+const RATES_STORAGE_KEY = 'accounting_rates_v1';
+
+// 預設匯率（轉成 MOP）— 約略參考 2026-08 匯率
+// HKD 官方掛鉤 1 HKD = 1.03 MOP
+// 1 CNY ≈ 1.196 MOP
+const DEFAULT_RATES = {
+  MOP: 1,
+  HKD: 1.03,
+  CNY: 1.196
+};
+
+// 分類圖示
+const CATEGORY_ICONS = {
+  '餐飲': '🍔',
+  '交通': '🚗',
+  '購物': '🛍️',
+  '娛樂': '🎮',
+  '居住': '🏠',
+  '母嬰': '👶',
+  '保險費': '🛡️',
+  '學貸': '🎓',
+  '生活費': '💵',
+  '薪資': '💼',
+  '電話費': '📞',
+  '電費': '⚡',
+  '淘寶': '🛒',
+  '上網費': '🌐',
+  '醫療': '🏥',
+  '其他': '🏷️'
+};
+
+function loadRates() {
+  try {
+    const data = localStorage.getItem(RATES_STORAGE_KEY);
+    if (data) {
+      const parsed = JSON.parse(data);
+      return { ...DEFAULT_RATES, ...parsed, MOP: 1 };
+    }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_RATES };
+}
+
+function saveRates(rates) {
+  localStorage.setItem(RATES_STORAGE_KEY, JSON.stringify({
+    HKD: rates.HKD,
+    CNY: rates.CNY
+  }));
+}
+
+let ratesToMOP = loadRates();
+
+function toMOP(amount, currency) {
+  const rate = ratesToMOP[currency] || 1;
+  return Number(amount) * rate;
+}
 
 function loadRecords() {
   try {
@@ -48,6 +103,15 @@ function init() {
   form.addEventListener('submit', handleSubmit);
   categorySelect.addEventListener('change', toggleCustomCategory);
 
+  // 匯率設定
+  $('#btn-rates').addEventListener('click', openRatesModal);
+  $('#btn-close-rates').addEventListener('click', closeRatesModal);
+  $('#btn-reset-rates').addEventListener('click', resetRates);
+  $('#rates-form').addEventListener('submit', handleRatesSubmit);
+  $('#rates-modal-overlay').addEventListener('click', (e) => {
+    if (e.target === $('#rates-modal-overlay')) closeRatesModal();
+  });
+
   // 類型切換
   $$('.type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -63,6 +127,38 @@ function init() {
   });
 
   render();
+}
+
+// ========== 匯率設定 ==========
+function openRatesModal() {
+  $('#rate-hkd').value = ratesToMOP.HKD;
+  $('#rate-cny').value = ratesToMOP.CNY;
+  $('#rates-modal-overlay').classList.remove('hidden');
+}
+
+function closeRatesModal() {
+  $('#rates-modal-overlay').classList.add('hidden');
+}
+
+function handleRatesSubmit(e) {
+  e.preventDefault();
+  const hkd = Number($('#rate-hkd').value);
+  const cny = Number($('#rate-cny').value);
+  if (hkd <= 0 || cny <= 0) {
+    alert('匯率必須大於 0');
+    return;
+  }
+  ratesToMOP = { MOP: 1, HKD: hkd, CNY: cny };
+  saveRates(ratesToMOP);
+  closeRatesModal();
+  render(); // 重新計算摘要與圖表
+}
+
+function resetRates() {
+  ratesToMOP = { ...DEFAULT_RATES };
+  saveRates(ratesToMOP);
+  $('#rate-hkd').value = ratesToMOP.HKD;
+  $('#rate-cny').value = ratesToMOP.CNY;
 }
 
 // ========== 月份 ==========
@@ -103,23 +199,21 @@ function renderSummary() {
   let income = 0;
   let expense = 0;
 
-  // 為了簡單，摘要以 TWD 為基準顯示（實際金額直接加總，不換匯）
-  // 若有多幣別，顯示時仍加總原始數字，並標示
   monthRecords.forEach(r => {
-    const amt = Number(r.amount) || 0;
-    if (r.type === 'income') income += amt;
-    else expense += amt;
+    const amtMOP = toMOP(r.amount, r.currency);
+    if (r.type === 'income') income += amtMOP;
+    else expense += amtMOP;
   });
 
   const balance = income - expense;
 
-  $('#summary-income').textContent = formatMoney(income);
-  $('#summary-expense').textContent = formatMoney(expense);
-  $('#summary-balance').textContent = formatMoney(balance);
+  $('#summary-income').textContent = 'MOP ' + formatMoney(income);
+  $('#summary-expense').textContent = 'MOP ' + formatMoney(expense);
+  $('#summary-balance').textContent = 'MOP ' + formatMoney(balance);
 }
 
 function formatMoney(n) {
-  return n.toLocaleString('zh-TW', { maximumFractionDigits: 2 });
+  return Number(n).toLocaleString('zh-TW', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 function renderRecords() {
@@ -133,11 +227,12 @@ function renderRecords() {
   noRecords.style.display = 'none';
 
   monthRecords.forEach(r => {
+    const icon = CATEGORY_ICONS[r.category] || '🏷️';
     const item = document.createElement('div');
     item.className = 'record-item';
     item.innerHTML = `
       <div class="record-left">
-        <div class="record-category">${escapeHtml(r.category)}</div>
+        <div class="record-category">${icon} ${escapeHtml(r.category)}</div>
         <div class="record-meta">
           ${r.date} · ${escapeHtml(r.payment)}${r.note ? ' · ' + escapeHtml(r.note) : ''}
         </div>
@@ -191,62 +286,72 @@ function renderChart() {
   canvas.style.display = 'block';
   noChartData.style.display = 'none';
 
-  // 依分類加總
+  // 依分類加總（轉換為 MOP）
   const byCategory = {};
   monthRecords.forEach(r => {
     const cat = r.category || '其他';
-    byCategory[cat] = (byCategory[cat] || 0) + Number(r.amount);
+    byCategory[cat] = (byCategory[cat] || 0) + toMOP(r.amount, r.currency);
   });
 
-  const labels = Object.keys(byCategory);
-  const data = Object.values(byCategory);
+  // 依金額由高到低排序
+  const sorted = Object.entries(byCategory).sort((a, b) => b[1] - a[1]);
+  const labels = sorted.map(([cat]) => {
+    const icon = CATEGORY_ICONS[cat] || '🏷️';
+    return `${icon} ${cat}`;
+  });
+  const data = sorted.map(([, amt]) => amt);
 
   const colors = [
     '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6',
-    '#3b82f6', '#8b5cf6', '#ec4899', '#64748b', '#0ea5e9'
+    '#3b82f6', '#8b5cf6', '#ec4899', '#64748b', '#0ea5e9',
+    '#a855f7', '#06b6d4', '#84cc16', '#f43f5e', '#6366f1'
   ];
 
   if (categoryChart) {
-    categoryChart.data.labels = labels;
-    categoryChart.data.datasets[0].data = data;
-    categoryChart.update();
-  } else {
-    categoryChart = new Chart(canvas, {
-      type: 'doughnut',
-      data: {
-        labels,
-        datasets: [{
-          data,
-          backgroundColor: colors.slice(0, labels.length),
-          borderWidth: 2,
-          borderColor: '#fff'
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'bottom',
-            labels: {
-              boxWidth: 12,
-              padding: 12,
-              font: { size: 12 }
-            }
-          },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => {
-                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                const pct = ((ctx.raw / total) * 100).toFixed(1);
-                return `${ctx.label}: ${formatMoney(ctx.raw)} (${pct}%)`;
-              }
+    categoryChart.destroy();
+    categoryChart = null;
+  }
+
+  categoryChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: '支出 (MOP)',
+        data,
+        backgroundColor: colors.slice(0, labels.length),
+        borderRadius: 6,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'y', // 水平棒形圖，分類名稱較好閱讀
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              return `MOP ${formatMoney(ctx.raw)}`;
             }
           }
         }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: {
+            callback: (val) => formatMoney(val)
+          },
+          grid: { color: '#f3f4f6' }
+        },
+        y: {
+          grid: { display: false }
+        }
       }
-    });
-  }
+    }
+  });
 }
 
 // ========== Modal ==========
