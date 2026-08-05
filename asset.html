@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>雲端記帳本 - 總資產</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-container" id="main-container"></div>
+<script src="app.js"></script>
+<script>
+  document.getElementById('main-container').innerHTML = `
+    ${renderAuthBar()}
+    ${renderNavTabs('asset')}
+    <div class="dashboard" style="background: linear-gradient(135deg, #D97706, #B45309);">
+      <div class="dashboard-header"><span class="label">淨總資產總額 (折合 MOP)</span></div>
+      <div class="total-balance" id="asset-grand-total">MOP$ 0.00</div>
+    </div>
+  `;
+  initAuthListener(() => { /* 初始化資產總計 */ });
+</script>
+</body>
+</html>
