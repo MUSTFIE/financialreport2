@@ -17,8 +17,24 @@ const CATEGORY_ICONS = Object.fromEntries(CATEGORIES.map(c => [c.name, c.icon]))
 const ACCOUNT_TYPE_ICONS = {
   '現金':'💵','銀行':'🏦','信用卡':'💳','電子錢包':'📱','投資':'📈','其他':'🏷️'
 };
-const TYPE_ORDER = ['現金','銀行','信用卡','投資','其他'];
+const TYPE_ORDER = ['現金','銀行','信用卡','電子錢包','投資','其他'];
 const BAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#64748b','#0ea5e9'];
+
+// ========== Firebase 設定（請填入你的專案） ==========
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyAr_4P8sHYFDH2ZIW-04kvN8baHaePxxQ8',
+  authDomain: 'financial-record-e41e9.firebaseapp.com',
+  databaseURL: 'https://financial-record-e41e9-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId: 'financial-record-e41e9',
+  storageBucket: 'financial-record-e41e9.firebasestorage.app',
+  messagingSenderId: '1022975525620',
+  appId: '1:1022975525620:web:c918f787d51aae670214a1'
+};
+let firebaseReady = false;
+let auth = null;
+let db = null;
+let currentUser = null;
+let syncing = false;
 
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
@@ -39,7 +55,10 @@ function loadJSON(key, fallback) {
   try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : fallback; }
   catch { return fallback; }
 }
-function saveJSON(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+function saveJSON(key, val) {
+  localStorage.setItem(key, JSON.stringify(val));
+  scheduleCloudSync();
+}
 
 function loadRates() {
   const p = loadJSON(RATES_KEY, null);
@@ -88,7 +107,8 @@ let currentType = 'expense';
 let currentPage = 'monthly';
 let filters = { type: '', category: '', account: '' };
 let expandedAccountId = null;
-let selectedCategory = '餐飲';
+let mpfViewYear = new Date().getFullYear();
+let mpfViewMonth = new Date().getMonth(); // 0-11
 
 function renderBarList(container, items) {
   container.innerHTML = '';
@@ -111,30 +131,120 @@ function renderBarList(container, items) {
   });
 }
 
-function renderCategoryTiles(selected) {
-  const box = $('#category-tiles');
-  if (!box) return;
-  box.innerHTML = '';
-  CATEGORIES.forEach(c => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'cat-tile' + (c.name === selected ? ' active' : '');
-    btn.dataset.cat = c.name;
-    btn.innerHTML = `<span class="cat-icon">${c.icon}</span><span>${c.name}</span>`;
-    btn.addEventListener('click', () => {
-      selectedCategory = c.name;
-      $('#category').value = c.name;
-      $$('.cat-tile').forEach(t => t.classList.toggle('active', t.dataset.cat === c.name));
-      onCategoryChange();
+function initFirebase() {
+  if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.databaseURL) {
+    console.info('Firebase 未設定，使用本機模式');
+    return;
+  }
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    auth = firebase.auth();
+    db = firebase.database();
+    firebaseReady = true;
+    auth.onAuthStateChanged(async user => {
+      currentUser = user;
+      updateAuthButton();
+      if (user) {
+        await onUserSignedIn(user);
+      }
     });
-    box.appendChild(btn);
-  });
+  } catch (err) {
+    console.error('Firebase 初始化失敗', err);
+    firebaseReady = false;
+  }
+}
+
+function updateAuthButton() {
+  const btn = $('#btn-auth');
+  if (!btn) return;
+  if (!firebaseReady) {
+    btn.title = '未設定 Firebase';
+    btn.textContent = '👤';
+    btn.classList.remove('logged-in');
+    return;
+  }
+  if (currentUser) {
+    btn.title = currentUser.email || '已登入';
+    btn.textContent = '☁️';
+    btn.classList.add('logged-in');
+  } else {
+    btn.title = 'Google 登入';
+    btn.textContent = '👤';
+    btn.classList.remove('logged-in');
+  }
+}
+
+async function onUserSignedIn(user) {
+  const snap = await db.ref('users/' + user.uid).once('value');
+  const cloud = snap.val();
+  if (!cloud || (!cloud.records && !cloud.accounts)) {
+    // 雲端無資料 → 詢問是否上傳本機
+    if (records.length || accounts.length) {
+      const ok = confirm('偵測到本機有資料，雲端為空。是否上傳本機資料到雲端？');
+      if (ok) await pushAllToCloud();
+    }
+  } else {
+    // 雲端有資料 → 下載覆蓋本機快取
+    if (cloud.records) records = cloud.records;
+    if (cloud.accounts) accounts = cloud.accounts;
+    if (cloud.liabilities) liabilities = cloud.liabilities;
+    if (cloud.mpfData) mpfData = cloud.mpfData;
+    if (cloud.rates) rates = { ...DEFAULT_RATES, ...cloud.rates, MOP: 1 };
+    persistLocal();
+    switchPage(currentPage);
+  }
+}
+
+function persistLocal() {
+  saveJSON(STORAGE_KEY, records);
+  saveJSON(ACCOUNTS_KEY, accounts);
+  saveJSON(LIABILITIES_KEY, liabilities);
+  saveJSON(MPF_KEY, mpfData);
+  saveRatesObj(rates);
+}
+
+async function pushAllToCloud() {
+  if (!firebaseReady || !currentUser) return;
+  syncing = true;
+  try {
+    await db.ref('users/' + currentUser.uid).set({
+      records, accounts, liabilities, mpfData, rates,
+      updatedAt: Date.now()
+    });
+  } catch (err) {
+    console.error(err);
+    alert('同步到雲端失敗：' + err.message);
+  }
+  syncing = false;
+}
+
+function scheduleCloudSync() {
+  if (!firebaseReady || !currentUser || syncing) return;
+  clearTimeout(scheduleCloudSync._t);
+  scheduleCloudSync._t = setTimeout(() => pushAllToCloud(), 800);
+}
+
+async function handleAuthClick() {
+  if (!firebaseReady) {
+    alert('請先在 app.js 填入 FIREBASE_CONFIG（Firebase 專案設定）');
+    return;
+  }
+  if (currentUser) {
+    if (confirm('確定要登出？')) await auth.signOut();
+  } else {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    try {
+      await auth.signInWithPopup(provider);
+    } catch (err) {
+      alert('登入失敗：' + err.message);
+    }
+  }
 }
 
 function init() {
   if ($('#date')) $('#date').valueAsDate = new Date();
-  renderCategoryTiles('餐飲');
-  $('#category').value = '餐飲';
+  initFirebase();
+  updateAuthButton();
 
   $$('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchPage(btn.dataset.page)));
   $('#btn-add').addEventListener('click', openAddModal);
@@ -143,6 +253,7 @@ function init() {
   $('#btn-prev-month').addEventListener('click', () => changeMonth(-1));
   $('#btn-next-month').addEventListener('click', () => changeMonth(1));
   $('#record-form').addEventListener('submit', handleRecordSubmit);
+  $('#category').addEventListener('change', onCategoryChange);
   $$('.type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       $$('.type-btn').forEach(b => b.classList.remove('active'));
@@ -151,6 +262,17 @@ function init() {
     });
   });
   $('#modal-overlay').addEventListener('click', e => { if (e.target.id === 'modal-overlay') closeModal(); });
+  $('#btn-auth').addEventListener('click', handleAuthClick);
+  $('#btn-mpf-prev-month').addEventListener('click', () => {
+    mpfViewMonth--;
+    if (mpfViewMonth < 0) { mpfViewMonth = 11; mpfViewYear--; }
+    renderMpf();
+  });
+  $('#btn-mpf-next-month').addEventListener('click', () => {
+    mpfViewMonth++;
+    if (mpfViewMonth > 11) { mpfViewMonth = 0; mpfViewYear++; }
+    renderMpf();
+  });
 
   $('#btn-toggle-filter').addEventListener('click', () => $('#filter-panel').classList.toggle('hidden'));
   $('#btn-filter-apply').addEventListener('click', () => {
@@ -407,8 +529,9 @@ function renderYearly() {
   if (!listEl.children.length) listEl.innerHTML = '<div class="empty-hint">本年尚無紀錄</div>';
 }
 
-function visibleAccounts() {
-  return accounts.filter(a => a.type !== '電子錢包');
+/** 計入淨額的戶口（不含電子錢包、信用卡） */
+function netAssetAccounts() {
+  return accounts.filter(a => a.type !== '電子錢包' && a.type !== '信用卡');
 }
 
 function getAccountLedger(accountId) {
@@ -419,8 +542,7 @@ function getAccountLedger(accountId) {
 
 function renderAccounts() {
   const nets = { MOP: 0, HKD: 0, CNY: 0 };
-  visibleAccounts().forEach(a => {
-    if (a.type === '信用卡') return;
+  netAssetAccounts().forEach(a => {
     const b = a.balances || {};
     nets.MOP += Number(b.MOP) || 0;
     nets.HKD += Number(b.HKD) || 0;
@@ -433,15 +555,14 @@ function renderAccounts() {
 
   const container = $('#accounts-by-type');
   container.innerHTML = '';
-  const list = visibleAccounts();
-  if (!list.length) {
+  if (!accounts.length) {
     $('#no-accounts').style.display = 'block';
     return;
   }
   $('#no-accounts').style.display = 'none';
 
   TYPE_ORDER.forEach(type => {
-    const group = list.filter(a => a.type === type);
+    const group = accounts.filter(a => a.type === type);
     if (!group.length) return;
     const section = document.createElement('div');
     section.className = 'type-group';
@@ -450,8 +571,15 @@ function renderAccounts() {
     group.forEach(a => {
       const b = a.balances || { MOP: 0, HKD: 0, CNY: 0 };
       const isDebt = a.type === '信用卡';
+      const isWallet = a.type === '電子錢包';
+      const linked = isWallet && a.linkedBankId ? accounts.find(x => x.id === a.linkedBankId) : null;
       const expanded = expandedAccountId === a.id;
-      const ledger = expanded ? getAccountLedger(a.id) : [];
+      // 電子錢包流水掛在銀行；點電子錢包時顯示「經由此錢包」的紀錄
+      const ledger = expanded
+        ? (isWallet
+            ? records.filter(r => r.viaWalletId === a.id).sort((x, y) => new Date(y.date) - new Date(x.date))
+            : getAccountLedger(a.id))
+        : [];
       let ledgerHtml = '';
       if (expanded) {
         if (!ledger.length) ledgerHtml = '<div class="ledger-empty">尚無流水紀錄</div>';
@@ -460,12 +588,19 @@ function renderAccounts() {
             const sign = r.type === 'income' ? '+' : '−';
             const via = r.viaWalletId ? accounts.find(w => w.id === r.viaWalletId) : null;
             return `<div class="ledger-item">
-              <span>${r.date} · ${escapeHtml(r.category)}${via ? ' · ' + escapeHtml(via.name) : ''}${r.note ? ' · ' + escapeHtml(r.note) : ''}</span>
+              <span>${r.date} · ${escapeHtml(r.category)}${via && !isWallet ? ' · ' + escapeHtml(via.name) : ''}${r.note ? ' · ' + escapeHtml(r.note) : ''}</span>
               <span class="record-amount ${r.type}">${sign}${money(r.currency, r.amount)}</span>
             </div>`;
           }).join('');
         }
       }
+      const chips = isWallet
+        ? `<div class="account-meta" style="margin-top:8px">扣帳銀行：${linked ? escapeHtml(linked.name) : '未設定'}（不計入淨額）</div>`
+        : `<div class="currency-chips">
+          <div class="currency-chip ${!b.MOP ? 'zero' : ''}"><span class="cc-code">MOP</span><span class="cc-val">${formatMoney(b.MOP || 0)}</span></div>
+          <div class="currency-chip ${!b.HKD ? 'zero' : ''}"><span class="cc-code">HKD</span><span class="cc-val">${formatMoney(b.HKD || 0)}</span></div>
+          <div class="currency-chip ${!b.CNY ? 'zero' : ''}"><span class="cc-code">CNY</span><span class="cc-val">${formatMoney(b.CNY || 0)}</span></div>
+        </div>`;
       const item = document.createElement('div');
       item.className = 'account-item' + (expanded ? ' expanded' : '');
       item.dataset.id = a.id;
@@ -481,11 +616,7 @@ function renderAccounts() {
             <button type="button" class="delete" data-id="${a.id}">刪除</button>
           </div>
         </div>
-        <div class="currency-chips">
-          <div class="currency-chip ${!b.MOP ? 'zero' : ''}"><span class="cc-code">MOP</span><span class="cc-val">${formatMoney(b.MOP || 0)}</span></div>
-          <div class="currency-chip ${!b.HKD ? 'zero' : ''}"><span class="cc-code">HKD</span><span class="cc-val">${formatMoney(b.HKD || 0)}</span></div>
-          <div class="currency-chip ${!b.CNY ? 'zero' : ''}"><span class="cc-code">CNY</span><span class="cc-val">${formatMoney(b.CNY || 0)}</span></div>
-        </div>
+        ${chips}
         <div class="account-ledger">
           <div class="ledger-title">流水帳（再點一次收合）</div>
           ${ledgerHtml}
@@ -635,9 +766,7 @@ function openAddModal() {
   currentType = 'expense';
   $$('.type-btn').forEach(b => b.classList.remove('active'));
   $('.type-btn[data-type="expense"]').classList.add('active');
-  selectedCategory = '餐飲';
   $('#category').value = '餐飲';
-  renderCategoryTiles('餐飲');
   $('#custom-category-row').classList.add('hidden');
   $('#repay-to-row').classList.add('hidden');
   populateAccountSelect();
@@ -660,14 +789,10 @@ function openEditModal(id) {
 
   const preset = CATEGORIES.map(c => c.name);
   if (preset.includes(r.category)) {
-    selectedCategory = r.category;
     $('#category').value = r.category;
-    renderCategoryTiles(r.category);
     $('#custom-category-row').classList.add('hidden');
   } else {
-    selectedCategory = '其他';
     $('#category').value = '其他';
-    renderCategoryTiles('其他');
     $('#custom-category-row').classList.remove('hidden');
     $('#custom-category').value = r.category;
   }
@@ -817,7 +942,7 @@ function handleAccountSubmit(e) {
 }
 
 function openRepayModal() {
-  const sources = visibleAccounts().filter(a => a.type !== '信用卡');
+  const sources = accounts.filter(a => a.type !== '信用卡' && a.type !== '電子錢包');
   const cards = accounts.filter(a => a.type === '信用卡');
   if (!sources.length || !cards.length) { alert('需要一般戶口與信用卡'); return; }
   const fromSel = $('#repay-from'); const toSel = $('#repay-to');
@@ -886,15 +1011,17 @@ function handleLiabilitySubmit(e) {
 }
 
 function renderAssets() {
-  let gross = 0, creditDebt = 0;
-  visibleAccounts().forEach(a => {
+  let bankMop = 0, otherMop = 0, creditDebt = 0;
+  accounts.forEach(a => {
+    if (a.type === '電子錢包') return;
     const mop = balancesToMOP(a.balances);
     if (a.type === '信用卡') creditDebt += mop;
-    else gross += mop;
+    else if (a.type === '銀行') bankMop += mop;
+    else otherMop += mop; // 現金、投資、其他
   });
   let mpfTotal = 0;
   (mpfData.accounts || []).forEach(a => { mpfTotal += toMOP(a.balance || 0, 'HKD'); });
-  gross += mpfTotal;
+  const gross = bankMop + otherMop + mpfTotal;
   let otherLiab = 0;
   liabilities.forEach(l => { otherLiab += balancesToMOP(l.balances); });
   const totalLiab = creditDebt + otherLiab;
@@ -903,11 +1030,13 @@ function renderAssets() {
   $('#assets-liability').textContent = money('MOP', totalLiab);
   $('#assets-net').textContent = money('MOP', gross - totalLiab);
 
-  const assetAccounts = visibleAccounts().filter(a => a.type !== '信用卡' && balancesToMOP(a.balances) > 0);
+  // 分布：強積金 / 銀行 / 其他（現金+投資+其他）/ 信用卡欠款
   const chartItems = [
-    ...assetAccounts.map(a => ({ label: `${ACCOUNT_TYPE_ICONS[a.type] || ''} ${a.name}`, value: balancesToMOP(a.balances) })),
-    ...(mpfTotal > 0 ? [{ label: '🏛️ 強積金', value: mpfTotal }] : [])
-  ].sort((a, b) => b.value - a.value);
+    { label: '🏛️ 強積金', value: mpfTotal },
+    { label: '🏦 銀行戶口', value: bankMop },
+    { label: '📦 其他資產', value: otherMop },
+    { label: '💳 信用卡欠款', value: creditDebt }
+  ].filter(i => i.value > 0);
 
   if (!chartItems.length) {
     $('#no-assets-data').style.display = 'block';
@@ -917,10 +1046,11 @@ function renderAssets() {
     $('#no-assets-data').style.display = 'none';
     renderBarList($('#assetsAccountBars'), chartItems);
     const byCur = { MOP: 0, HKD: 0, CNY: 0 };
-    assetAccounts.forEach(a => {
-      byCur.MOP += Number(a.balances.MOP || 0);
-      byCur.HKD += toMOP(a.balances.HKD || 0, 'HKD');
-      byCur.CNY += toMOP(a.balances.CNY || 0, 'CNY');
+    accounts.forEach(a => {
+      if (a.type === '電子錢包' || a.type === '信用卡') return;
+      byCur.MOP += Number(a.balances?.MOP || 0);
+      byCur.HKD += toMOP(a.balances?.HKD || 0, 'HKD');
+      byCur.CNY += toMOP(a.balances?.CNY || 0, 'CNY');
     });
     byCur.HKD += mpfTotal;
     renderBarList($('#assetsCurrencyBars'),
@@ -990,10 +1120,35 @@ function renderAssets() {
   }
 }
 
+function mpfMonthKey(y, m) {
+  return `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
+/** 計算指定月份相對上一筆 snapshot 的漲跌合計 */
+function calcMpfMonthChange(year, month) {
+  const key = mpfMonthKey(year, month);
+  let totalDiff = 0;
+  (mpfData.accounts || []).forEach(acc => {
+    const snaps = [...(acc.snapshots || [])].sort((a, b) => a.month.localeCompare(b.month));
+    const idx = snaps.findIndex(s => s.month === key);
+    if (idx < 0) return;
+    const cur = Number(snaps[idx].balance);
+    if (idx === 0) totalDiff += 0; // 無上月可比
+    else totalDiff += cur - Number(snaps[idx - 1].balance);
+  });
+  return totalDiff;
+}
+
 function renderMpf() {
   let total = 0;
   (mpfData.accounts || []).forEach(a => { total += Number(a.balance) || 0; });
   $('#mpf-total').textContent = money('HKD', total);
+
+  const change = calcMpfMonthChange(mpfViewYear, mpfViewMonth);
+  $('#mpf-change-month-label').textContent = `${mpfViewYear}/${mpfViewMonth + 1} 漲跌`;
+  const changeEl = $('#mpf-month-change');
+  changeEl.textContent = (change >= 0 ? '+' : '') + money('HKD', change);
+  changeEl.style.color = change > 0 ? 'var(--income)' : change < 0 ? 'var(--expense)' : '';
 
   const el = $('#mpf-accounts-list');
   el.innerHTML = '';
