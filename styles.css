@@ -275,3 +275,103 @@ form { padding: 14px 18px 20px; }
   .card.expense-split .split-line strong { font-size: 0.75rem; }
   .header-actions .btn { padding: 8px 10px; font-size: 0.8rem; }
 }
+
+/* currency four summary */
+.summary-cards.currency-four {
+  grid-template-columns: repeat(4, 1fr);
+}
+.card.highlight {
+  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+  border: 1px solid #c7d2fe;
+}
+@media (max-width: 480px) {
+  .summary-cards.currency-four {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* horizontal currency chips on accounts */
+.currency-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.currency-chip {
+  flex: 1;
+  min-width: 90px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  text-align: center;
+}
+.currency-chip .cc-code {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.currency-chip .cc-val {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.currency-chip.zero { opacity: 0.4; }
+
+/* category tiles */
+.category-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.cat-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 8px 4px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: #f9fafb;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--text);
+  touch-action: manipulation;
+  transition: all 0.12s;
+}
+.cat-tile .cat-icon { font-size: 1.25rem; line-height: 1; }
+.cat-tile.active {
+  border-color: var(--primary);
+  background: #eef2ff;
+  color: var(--primary);
+  font-weight: 650;
+}
+@media (max-width: 400px) {
+  .category-tiles { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* export modal */
+.export-body {
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.export-btn {
+  width: 100%;
+  min-height: 48px;
+  text-align: left;
+  padding-left: 16px;
+}
+.export-btn.primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.export-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
