@@ -29,7 +29,158 @@ body {
 .app {
   max-width: 640px;
   margin: 0 auto;
-  padding: 20px 16px 40px;
+  padding: 20px 16px 90px;
+}
+
+/* Pages */
+.page {
+  display: none;
+}
+
+.page.active {
+  display: block;
+}
+
+.page-only.hidden {
+  display: none !important;
+}
+
+/* Bottom Nav */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+  z-index: 50;
+  max-width: 640px;
+  margin: 0 auto;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
+}
+
+.nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 4px;
+  transition: color 0.15s;
+}
+
+.nav-btn .nav-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.nav-btn.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.summary-cards.single {
+  grid-template-columns: 1fr;
+}
+
+.summary-cards .card.full {
+  grid-column: 1 / -1;
+}
+
+.chart-container.chart-tall {
+  height: 280px;
+}
+
+.chart-container.chart-medium {
+  height: 220px;
+}
+
+.month-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
+  margin-bottom: 8px;
+}
+
+.month-bar .month-name {
+  font-weight: 600;
+}
+
+.month-bar .month-stats {
+  text-align: right;
+  font-size: 0.85rem;
+}
+
+.month-bar .inc { color: var(--income); }
+.month-bar .exp { color: var(--expense); }
+
+.account-item {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.account-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.account-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.account-right {
+  text-align: right;
+}
+
+.account-balance {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--primary);
+}
+
+.account-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+
+.account-actions button {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.account-actions button.delete {
+  color: var(--expense);
 }
 
 header {
