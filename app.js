@@ -8,16 +8,17 @@ const DEFAULT_RATES = { MOP: 1, HKD: 1.03, CNY: 1.196, HKD_CNY: 0.86 };
 const CATEGORY_ICONS = {
   '餐飲':'🍔','交通':'🚗','購物':'🛍️','娛樂':'🎮','居住':'🏠','母嬰':'👶',
   '保險費':'🛡️','學貸':'🎓','生活費':'💵','薪資':'💼','電話費':'📞','電費':'⚡',
-  '淘寶':'🛒','上網費':'🌐','醫療':'🏥','其他':'🏷️','信用卡還款':'💳'
+  '淘寶':'🛒','上網費':'🌐','醫療':'🏥','信用卡還款':'💳','其他':'🏷️'
 };
 const ACCOUNT_TYPE_ICONS = {
   '現金':'💵','銀行':'🏦','信用卡':'💳','電子錢包':'📱','投資':'📈','其他':'🏷️'
 };
 const TYPE_ORDER = ['現金','銀行','信用卡','電子錢包','投資','其他'];
-const COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#64748b','#0ea5e9','#a855f7','#06b6d4','#84cc16','#f43f5e','#6366f1'];
+const BAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#64748b','#0ea5e9','#a855f7','#06b6d4','#84cc16','#f43f5e','#6366f1'];
 
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
+
 function formatMoney(n) {
   return Number(n).toLocaleString('zh-TW', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
@@ -43,7 +44,6 @@ function saveRatesObj(r) {
 let rates = loadRates();
 
 function toMOP(amount, currency) {
-  if (currency === 'MOP') return Number(amount) || 0;
   if (currency === 'HKD') return (Number(amount) || 0) * rates.HKD;
   if (currency === 'CNY') return (Number(amount) || 0) * rates.CNY;
   return Number(amount) || 0;
@@ -53,18 +53,21 @@ function balancesToMOP(b) {
   return toMOP(b.MOP || 0, 'MOP') + toMOP(b.HKD || 0, 'HKD') + toMOP(b.CNY || 0, 'CNY');
 }
 
+function isRepayment(r) {
+  return r.category === '信用卡還款' || !!r.repayToId;
+}
+
 let records = loadJSON(STORAGE_KEY, []);
 let accounts = loadJSON(ACCOUNTS_KEY, []);
 accounts = accounts.map(a => {
   if (a.balances) return a;
   const bal = { MOP: 0, HKD: 0, CNY: 0 };
   if (a.currency && a.balance != null) bal[a.currency] = Number(a.balance);
-  return { id: a.id, name: a.name, type: a.type, balances: bal, note: a.note || '' };
+  return { id: a.id, name: a.name, type: a.type, balances: bal, note: a.note || '', linkedBankId: a.linkedBankId || '' };
 });
 saveJSON(ACCOUNTS_KEY, accounts);
 
 let liabilities = loadJSON(LIABILITIES_KEY, []);
-// MPF v2: { accounts: [{ id, name, balance, note, changes: [{ id, month, amount, note }] }] }
 let mpfData = loadJSON(MPF_KEY, { accounts: [] });
 if (!mpfData.accounts) mpfData = { accounts: [] };
 
@@ -72,52 +75,62 @@ let currentYear = new Date().getFullYear();
 let currentMonth = new Date().getMonth();
 let currentType = 'expense';
 let currentPage = 'monthly';
-let charts = {};
 let filters = { type: '', category: '', account: '', dateFrom: '', dateTo: '' };
+let expandedAccountId = null;
 
-function destroyChart(key) {
-  if (charts[key]) { charts[key].destroy(); charts[key] = null; }
-}
-
-function makeHBarChart(canvas, labels, data) {
-  const total = data.reduce((a, b) => a + b, 0) || 1;
-  return new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        data,
-        backgroundColor: COLORS.slice(0, labels.length),
-        borderRadius: 5,
-        borderSkipped: false,
-        barThickness: 16
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      indexAxis: 'y',
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const pct = ((ctx.raw / total) * 100).toFixed(1);
-              return `MOP ${formatMoney(ctx.raw)}（${pct}%）`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: { beginAtZero: true, ticks: { callback: v => formatMoney(v), font: { size: 10 } }, grid: { color: '#f3f4f6' } },
-        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
-      }
-    }
+// ========== HTML Bar List ==========
+function renderBarList(container, items) {
+  // items: [{ label, value, color? }]
+  container.innerHTML = '';
+  if (!items.length) return;
+  const max = Math.max(...items.map(i => Math.abs(i.value)), 1);
+  items.forEach((item, idx) => {
+    const pct = (Math.abs(item.value) / max) * 100;
+    const share = items.reduce((s, i) => s + Math.abs(i.value), 0);
+    const sharePct = share ? ((Math.abs(item.value) / share) * 100).toFixed(1) : 0;
+    const color = item.color || BAR_COLORS[idx % BAR_COLORS.length];
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <div class="bar-row-top">
+        <span class="bar-label">${item.label}</span>
+        <span class="bar-val">MOP ${formatMoney(item.value)}（${sharePct}%）</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>`;
+    container.appendChild(row);
   });
 }
 
+function renderDualMonthBars(container, monthsInc, monthsExp) {
+  container.innerHTML = '';
+  const max = Math.max(...monthsInc, ...monthsExp, 1);
+  const labels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  for (let m = 0; m < 12; m++) {
+    if (monthsInc[m] === 0 && monthsExp[m] === 0) continue;
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    const incW = (monthsInc[m] / max) * 100;
+    const expW = (monthsExp[m] / max) * 100;
+    row.innerHTML = `
+      <div class="bar-row-top">
+        <span class="bar-label">${labels[m]}</span>
+        <span class="bar-val"><span style="color:#10b981">+${formatMoney(monthsInc[m])}</span> / <span style="color:#ef4444">−${formatMoney(monthsExp[m])}</span></span>
+      </div>
+      <div class="bar-dual">
+        <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${incW}%;background:#10b981"></div></div>
+        <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${expW}%;background:#ef4444"></div></div>
+      </div>`;
+    container.appendChild(row);
+  }
+  if (!container.children.length) {
+    container.innerHTML = '<div class="empty-hint">本年尚無紀錄</div>';
+  }
+}
+
+// ========== Init ==========
 function init() {
-  $('#date').valueAsDate = new Date();
+  const dateEl = $('#date');
+  if (dateEl) dateEl.valueAsDate = new Date();
 
   $$('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => switchPage(btn.dataset.page));
@@ -129,23 +142,37 @@ function init() {
   $('#btn-prev-month').addEventListener('click', () => changeMonth(-1));
   $('#btn-next-month').addEventListener('click', () => changeMonth(1));
   $('#record-form').addEventListener('submit', handleRecordSubmit);
-  $('#category').addEventListener('change', toggleCustomCategory);
+  $('#category').addEventListener('change', onCategoryChange);
   $$('.type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       $$('.type-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentType = btn.dataset.type;
-      onTypeChange();
     });
   });
-  $('#modal-overlay').addEventListener('click', e => { if (e.target === $('#modal-overlay')) closeModal(); });
+  $('#modal-overlay').addEventListener('click', e => { if (e.target.id === 'modal-overlay') closeModal(); });
 
-  // filter
+  // Filter - bind once
   $('#btn-toggle-filter').addEventListener('click', () => {
     $('#filter-panel').classList.toggle('hidden');
   });
-  $('#btn-filter-apply').addEventListener('click', applyFilters);
-  $('#btn-filter-reset').addEventListener('click', resetFilters);
+  $('#btn-filter-apply').addEventListener('click', () => {
+    filters.type = $('#filter-type').value;
+    filters.category = $('#filter-category').value;
+    filters.account = $('#filter-account').value;
+    filters.dateFrom = $('#filter-date-from').value;
+    filters.dateTo = $('#filter-date-to').value;
+    renderMonthRecords();
+  });
+  $('#btn-filter-reset').addEventListener('click', () => {
+    filters = { type: '', category: '', account: '', dateFrom: '', dateTo: '' };
+    $('#filter-type').value = '';
+    $('#filter-category').value = '';
+    $('#filter-account').value = '';
+    $('#filter-date-from').value = '';
+    $('#filter-date-to').value = '';
+    renderMonthRecords();
+  });
 
   $('#btn-prev-year').addEventListener('click', () => { currentYear--; renderYearly(); });
   $('#btn-next-year').addEventListener('click', () => { currentYear++; renderYearly(); });
@@ -154,36 +181,38 @@ function init() {
   $('#btn-close-account-modal').addEventListener('click', closeAccountModal);
   $('#btn-cancel-account').addEventListener('click', closeAccountModal);
   $('#account-form').addEventListener('submit', handleAccountSubmit);
-  $('#account-modal-overlay').addEventListener('click', e => { if (e.target === $('#account-modal-overlay')) closeAccountModal(); });
+  $('#account-type').addEventListener('change', onAccountTypeChange);
+  $('#account-modal-overlay').addEventListener('click', e => { if (e.target.id === 'account-modal-overlay') closeAccountModal(); });
 
   $('#btn-repay').addEventListener('click', openRepayModal);
   $('#btn-close-repay').addEventListener('click', closeRepayModal);
   $('#btn-cancel-repay').addEventListener('click', closeRepayModal);
   $('#repay-form').addEventListener('submit', handleRepaySubmit);
-  $('#repay-modal-overlay').addEventListener('click', e => { if (e.target === $('#repay-modal-overlay')) closeRepayModal(); });
+  $('#repay-modal-overlay').addEventListener('click', e => { if (e.target.id === 'repay-modal-overlay') closeRepayModal(); });
 
   $('#btn-add-liability').addEventListener('click', openAddLiabilityModal);
   $('#btn-close-liability-modal').addEventListener('click', closeLiabilityModal);
   $('#btn-cancel-liability').addEventListener('click', closeLiabilityModal);
   $('#liability-form').addEventListener('submit', handleLiabilitySubmit);
-  $('#liability-modal-overlay').addEventListener('click', e => { if (e.target === $('#liability-modal-overlay')) closeLiabilityModal(); });
+  $('#liability-modal-overlay').addEventListener('click', e => { if (e.target.id === 'liability-modal-overlay') closeLiabilityModal(); });
 
-  // MPF
-  $('#btn-add-mpf-account').addEventListener('click', openAddMpfAccountModal);
+  // MPF - ensure buttons work
+  const btnMpf = $('#btn-add-mpf-account');
+  if (btnMpf) btnMpf.addEventListener('click', openAddMpfAccountModal);
   $('#btn-close-mpf-account').addEventListener('click', closeMpfAccountModal);
   $('#btn-cancel-mpf-account').addEventListener('click', closeMpfAccountModal);
   $('#mpf-account-form').addEventListener('submit', handleMpfAccountSubmit);
-  $('#mpf-account-modal-overlay').addEventListener('click', e => { if (e.target === $('#mpf-account-modal-overlay')) closeMpfAccountModal(); });
+  $('#mpf-account-modal-overlay').addEventListener('click', e => { if (e.target.id === 'mpf-account-modal-overlay') closeMpfAccountModal(); });
   $('#btn-close-mpf-change').addEventListener('click', closeMpfChangeModal);
   $('#btn-cancel-mpf-change').addEventListener('click', closeMpfChangeModal);
   $('#mpf-change-form').addEventListener('submit', handleMpfChangeSubmit);
-  $('#mpf-change-modal-overlay').addEventListener('click', e => { if (e.target === $('#mpf-change-modal-overlay')) closeMpfChangeModal(); });
+  $('#mpf-change-modal-overlay').addEventListener('click', e => { if (e.target.id === 'mpf-change-modal-overlay') closeMpfChangeModal(); });
 
   $('#btn-rates').addEventListener('click', openRatesModal);
   $('#btn-close-rates').addEventListener('click', closeRatesModal);
   $('#btn-reset-rates').addEventListener('click', resetRates);
   $('#rates-form').addEventListener('submit', handleRatesSubmit);
-  $('#rates-modal-overlay').addEventListener('click', e => { if (e.target === $('#rates-modal-overlay')) closeRatesModal(); });
+  $('#rates-modal-overlay').addEventListener('click', e => { if (e.target.id === 'rates-modal-overlay') closeRatesModal(); });
 
   switchPage('monthly');
 }
@@ -191,10 +220,12 @@ function init() {
 function switchPage(page) {
   currentPage = page;
   $$('.page').forEach(p => p.classList.remove('active'));
-  $(`#page-${page}`).classList.add('active');
+  const pageEl = $(`#page-${page}`);
+  if (pageEl) pageEl.classList.add('active');
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
   $$('.page-only').forEach(btn => {
-    btn.classList.toggle('hidden', btn.dataset.page !== page);
+    const show = btn.dataset.page === page;
+    btn.classList.toggle('hidden', !show);
   });
   if (page === 'monthly') renderMonthly();
   else if (page === 'yearly') renderYearly();
@@ -203,21 +234,17 @@ function switchPage(page) {
   else if (page === 'assets') renderAssets();
 }
 
-function onTypeChange() {
-  const isRepay = currentType === 'repayment';
-  $('#category-row').classList.toggle('hidden', isRepay);
-  $('#category').required = !isRepay;
-  $('#repay-to-row').classList.toggle('hidden', !isRepay);
-  $('#repay-to-account').required = isRepay;
-  if (isRepay) populateRepayToSelect();
-}
-
 // ========== Monthly ==========
 function changeMonth(delta) {
   currentMonth += delta;
   if (currentMonth > 11) { currentMonth = 0; currentYear++; }
   else if (currentMonth < 0) { currentMonth = 11; currentYear--; }
-  resetFilters();
+  filters = { type: '', category: '', account: '', dateFrom: '', dateTo: '' };
+  const ft = $('#filter-type'); if (ft) ft.value = '';
+  const fc = $('#filter-category'); if (fc) fc.value = '';
+  const fa = $('#filter-account'); if (fa) fa.value = '';
+  const fd1 = $('#filter-date-from'); if (fd1) fd1.value = '';
+  const fd2 = $('#filter-date-to'); if (fd2) fd2.value = '';
   renderMonthly();
 }
 
@@ -241,30 +268,12 @@ function getFilteredMonthRecords() {
   });
 }
 
-function applyFilters() {
-  filters.type = $('#filter-type').value;
-  filters.category = $('#filter-category').value;
-  filters.account = $('#filter-account').value;
-  filters.dateFrom = $('#filter-date-from').value;
-  filters.dateTo = $('#filter-date-to').value;
-  renderMonthRecords();
-}
-
-function resetFilters() {
-  filters = { type: '', category: '', account: '', dateFrom: '', dateTo: '' };
-  $('#filter-type').value = '';
-  $('#filter-category').value = '';
-  $('#filter-account').value = '';
-  $('#filter-date-from').value = '';
-  $('#filter-date-to').value = '';
-  renderMonthRecords();
-}
-
 function populateFilterOptions() {
   const monthRecs = getMonthRecords();
   const cats = [...new Set(monthRecs.map(r => r.category).filter(Boolean))];
   const catSel = $('#filter-category');
-  const cur = catSel.value;
+  if (!catSel) return;
+  const cur = filters.category;
   catSel.innerHTML = '<option value="">全部</option>';
   cats.forEach(c => {
     const o = document.createElement('option');
@@ -275,7 +284,8 @@ function populateFilterOptions() {
   catSel.value = cur;
 
   const accSel = $('#filter-account');
-  const curA = accSel.value;
+  if (!accSel) return;
+  const curA = filters.account;
   accSel.innerHTML = '<option value="">全部</option>';
   accounts.forEach(a => {
     const o = document.createElement('option');
@@ -293,7 +303,7 @@ function renderMonthly() {
   list.forEach(r => {
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') income += amt;
-    else if (r.type === 'repayment') repayment += amt;
+    else if (isRepayment(r)) repayment += amt;
     else expense += amt;
   });
   $('#summary-income').textContent = 'MOP ' + formatMoney(income);
@@ -301,21 +311,19 @@ function renderMonthly() {
   $('#summary-expense-all').textContent = 'MOP ' + formatMoney(expense + repayment);
   $('#summary-balance').textContent = 'MOP ' + formatMoney(income - expense - repayment);
   populateFilterOptions();
-  renderMonthChart();
+  renderMonthBars();
   renderMonthRecords();
 }
 
-function renderMonthChart() {
-  const list = getMonthRecords().filter(r => r.type === 'expense');
-  const canvas = $('#categoryChart');
+function renderMonthBars() {
+  const list = getMonthRecords().filter(r => r.type === 'expense' && !isRepayment(r));
+  const container = $('#categoryBars');
   const noData = $('#no-chart-data');
-  destroyChart('category');
   if (!list.length) {
-    canvas.style.display = 'none';
+    container.innerHTML = '';
     noData.style.display = 'block';
     return;
   }
-  canvas.style.display = 'block';
   noData.style.display = 'none';
   const byCat = {};
   list.forEach(r => {
@@ -323,11 +331,10 @@ function renderMonthChart() {
     byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency);
   });
   const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-  charts.category = makeHBarChart(
-    canvas,
-    sorted.map(([c]) => `${CATEGORY_ICONS[c] || '🏷️'} ${c}`),
-    sorted.map(([, v]) => v)
-  );
+  renderBarList(container, sorted.map(([c, v]) => ({
+    label: `${CATEGORY_ICONS[c] || '🏷️'} ${c}`,
+    value: v
+  })));
 }
 
 function renderMonthRecords() {
@@ -341,25 +348,23 @@ function renderMonthRecords() {
   }
   $('#no-records').style.display = 'none';
   list.forEach(r => {
-    const icon = r.type === 'repayment' ? '💳' : (CATEGORY_ICONS[r.category] || '🏷️');
-    const label = r.type === 'repayment' ? '信用卡還款' : r.category;
+    const icon = CATEGORY_ICONS[r.category] || '🏷️';
     const acc = accounts.find(a => a.id === r.accountId);
     const accName = acc ? acc.name : '';
-    const typeClass = r.type === 'repayment' ? 'repayment' : r.type;
     const sign = r.type === 'income' ? '+' : '−';
     const item = document.createElement('div');
     item.className = 'record-item';
     item.innerHTML = `
       <div class="record-left">
-        <div class="record-category">${icon} ${escapeHtml(label)}</div>
+        <div class="record-category">${icon} ${escapeHtml(r.category)}</div>
         <div class="record-meta">${r.date}${accName ? ' · ' + escapeHtml(accName) : ''}${r.note ? ' · ' + escapeHtml(r.note) : ''}</div>
       </div>
       <div class="record-right">
-        <div class="record-amount ${typeClass}">${sign} ${formatMoney(Number(r.amount))}</div>
+        <div class="record-amount ${r.type}">${sign} ${formatMoney(Number(r.amount))}</div>
         <div class="record-currency">${r.currency}</div>
         <div class="record-actions">
-          <button class="edit" data-id="${r.id}">編輯</button>
-          <button class="delete" data-id="${r.id}">刪除</button>
+          <button type="button" class="edit" data-id="${r.id}">編輯</button>
+          <button type="button" class="delete" data-id="${r.id}">刪除</button>
         </div>
       </div>`;
     el.appendChild(item);
@@ -387,52 +392,21 @@ function renderYearly() {
     const m = new Date(r.date).getMonth();
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') { income += amt; monthsInc[m] += amt; }
-    else if (r.type === 'repayment') { repayment += amt; monthsExp[m] += amt; }
+    else if (isRepayment(r)) { repayment += amt; monthsExp[m] += amt; }
     else { expense += amt; monthsExp[m] += amt; }
   });
   $('#year-income').textContent = 'MOP ' + formatMoney(income);
   $('#year-expense').textContent = 'MOP ' + formatMoney(expense);
   $('#year-balance').textContent = 'MOP ' + formatMoney(income - expense - repayment);
 
-  destroyChart('yearlyMonth');
-  const mLabels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
-  charts.yearlyMonth = new Chart($('#yearlyMonthChart'), {
-    type: 'bar',
-    data: {
-      labels: mLabels,
-      datasets: [
-        { label: '收入', data: monthsInc, backgroundColor: '#10b981', borderRadius: 3, barThickness: 10 },
-        { label: '支出', data: monthsExp, backgroundColor: '#ef4444', borderRadius: 3, barThickness: 10 }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      indexAxis: 'y',
-      plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: { size: 11 } } },
-        tooltip: {
-          callbacks: {
-            label: ctx => `${ctx.dataset.label}: MOP ${formatMoney(ctx.raw)}`
-          }
-        }
-      },
-      scales: {
-        x: { beginAtZero: true, ticks: { callback: v => formatMoney(v), font: { size: 10 } }, grid: { color: '#f3f4f6' } },
-        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
-      }
-    }
-  });
+  renderDualMonthBars($('#yearlyMonthBars'), monthsInc, monthsExp);
 
-  const expRecs = yearRecs.filter(r => r.type === 'expense');
-  const canvas = $('#yearlyCategoryChart');
+  const expRecs = yearRecs.filter(r => r.type === 'expense' && !isRepayment(r));
   const noData = $('#no-year-cat-data');
-  destroyChart('yearlyCat');
   if (!expRecs.length) {
-    canvas.style.display = 'none';
+    $('#yearlyCategoryBars').innerHTML = '';
     noData.style.display = 'block';
   } else {
-    canvas.style.display = 'block';
     noData.style.display = 'none';
     const byCat = {};
     expRecs.forEach(r => {
@@ -440,11 +414,10 @@ function renderYearly() {
       byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency);
     });
     const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-    charts.yearlyCat = makeHBarChart(
-      canvas,
-      sorted.map(([c]) => `${CATEGORY_ICONS[c] || '🏷️'} ${c}`),
-      sorted.map(([, v]) => v)
-    );
+    renderBarList($('#yearlyCategoryBars'), sorted.map(([c, v]) => ({
+      label: `${CATEGORY_ICONS[c] || '🏷️'} ${c}`,
+      value: v
+    })));
   }
 
   const listEl = $('#yearly-months-list');
@@ -471,6 +444,12 @@ function accountNetMOP(a) {
   return a.type === '信用卡' ? -total : total;
 }
 
+function getAccountLedger(accountId) {
+  return records
+    .filter(r => r.accountId === accountId || r.repayToId === accountId)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
 function renderAccounts() {
   let net = 0;
   accounts.forEach(a => { net += accountNetMOP(a); });
@@ -490,44 +469,78 @@ function renderAccounts() {
     const section = document.createElement('div');
     section.className = 'type-group';
     section.innerHTML = `<div class="type-group-title">${ACCOUNT_TYPE_ICONS[type] || ''} ${type}</div>`;
-    const sorted = [...group].sort((a, b) => Math.abs(balancesToMOP(b.balances)) - Math.abs(balancesToMOP(a.balances)));
-    sorted.forEach(a => {
-      const mop = balancesToMOP(a.balances);
+
+    group.forEach(a => {
+      const b = a.balances || { MOP: 0, HKD: 0, CNY: 0 };
       const isDebt = a.type === '信用卡';
-      const b = a.balances || {};
+      const linked = a.linkedBankId ? accounts.find(x => x.id === a.linkedBankId) : null;
+      const expanded = expandedAccountId === a.id;
+      const ledger = expanded ? getAccountLedger(a.id) : [];
+
+      let ledgerHtml = '';
+      if (expanded) {
+        if (!ledger.length) {
+          ledgerHtml = '<div class="ledger-empty">此戶口尚無流水紀錄</div>';
+        } else {
+          ledgerHtml = ledger.slice(0, 50).map(r => {
+            const sign = r.type === 'income' ? '+' : '−';
+            const cls = r.type === 'income' ? 'income' : 'expense';
+            return `<div class="ledger-item">
+              <span>${r.date} · ${escapeHtml(r.category)}${r.note ? ' · ' + escapeHtml(r.note) : ''}</span>
+              <span class="record-amount ${cls}">${sign}${formatMoney(r.amount)} ${r.currency}</span>
+            </div>`;
+          }).join('');
+        }
+      }
+
       const item = document.createElement('div');
-      item.className = 'account-item';
+      item.className = 'account-item' + (expanded ? ' expanded' : '');
+      item.dataset.id = a.id;
       item.innerHTML = `
         <div class="account-item-header">
           <div>
             <div class="account-name">${escapeHtml(a.name)}</div>
+            ${linked ? `<div class="account-meta">扣帳銀行：${escapeHtml(linked.name)}</div>` : ''}
             ${a.note ? `<div class="account-meta">${escapeHtml(a.note)}</div>` : ''}
+            ${isDebt ? '<div class="account-meta" style="color:#ef4444">正數＝欠款</div>' : ''}
           </div>
           <div class="account-actions">
-            <button class="edit" data-id="${a.id}">編輯</button>
-            <button class="delete" data-id="${a.id}">刪除</button>
+            <button type="button" class="edit" data-id="${a.id}">編輯</button>
+            <button type="button" class="delete" data-id="${a.id}">刪除</button>
           </div>
         </div>
-        <div class="account-balances">
-          <span class="bal-chip ${!(b.MOP) ? 'empty' : ''}">MOP ${formatMoney(b.MOP || 0)}</span>
-          <span class="bal-chip ${!(b.HKD) ? 'empty' : ''}">HKD ${formatMoney(b.HKD || 0)}</span>
-          <span class="bal-chip ${!(b.CNY) ? 'empty' : ''}">CNY ${formatMoney(b.CNY || 0)}</span>
-        </div>
-        <div class="account-mop-total ${isDebt ? 'debt' : ''}">
-          ${isDebt ? '欠款合計 ≈ ' : '約合 '}MOP ${formatMoney(mop)}
+        <table class="account-currency-table">
+          <tr class="${!(b.MOP) ? 'zero' : ''}"><td>MOP</td><td>${formatMoney(b.MOP || 0)}</td></tr>
+          <tr class="${!(b.HKD) ? 'zero' : ''}"><td>HKD</td><td>${formatMoney(b.HKD || 0)}</td></tr>
+          <tr class="${!(b.CNY) ? 'zero' : ''}"><td>CNY</td><td>${formatMoney(b.CNY || 0)}</td></tr>
+        </table>
+        <div class="account-ledger">
+          <div class="ledger-title">流水帳（點戶口可收合）</div>
+          ${ledgerHtml}
         </div>`;
       section.appendChild(item);
     });
     container.appendChild(section);
   });
 
+  // expand on card click (not on buttons)
+  container.querySelectorAll('.account-item').forEach(item => {
+    item.addEventListener('click', e => {
+      if (e.target.closest('button')) return;
+      const id = item.dataset.id;
+      expandedAccountId = expandedAccountId === id ? null : id;
+      renderAccounts();
+    });
+  });
   container.querySelectorAll('.edit').forEach(btn => {
-    btn.addEventListener('click', () => openEditAccountModal(btn.dataset.id));
+    btn.addEventListener('click', e => { e.stopPropagation(); openEditAccountModal(btn.dataset.id); });
   });
   container.querySelectorAll('.delete').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
       accounts = accounts.filter(a => a.id !== btn.dataset.id);
       saveJSON(ACCOUNTS_KEY, accounts);
+      if (expandedAccountId === btn.dataset.id) expandedAccountId = null;
       renderAccounts();
     });
   });
@@ -554,7 +567,7 @@ function populateAccountSelect(selectedId = '') {
 
 function populateRepayToSelect(selectedId = '') {
   const sel = $('#repay-to-account');
-  sel.innerHTML = '';
+  sel.innerHTML = '<option value="">請選擇信用卡</option>';
   accounts.filter(a => a.type === '信用卡').forEach(a => {
     const opt = document.createElement('option');
     opt.value = a.id;
@@ -562,6 +575,40 @@ function populateRepayToSelect(selectedId = '') {
     if (a.id === selectedId) opt.selected = true;
     sel.appendChild(opt);
   });
+}
+
+function populateLinkedBankSelect(selectedId = '') {
+  const sel = $('#linked-bank');
+  sel.innerHTML = '<option value="">請選擇銀行戶口</option>';
+  accounts.filter(a => a.type === '銀行').forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = a.name;
+    if (a.id === selectedId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function onAccountTypeChange() {
+  const isWallet = $('#account-type').value === '電子錢包';
+  $('#linked-bank-row').classList.toggle('hidden', !isWallet);
+  if (isWallet) populateLinkedBankSelect();
+}
+
+function onCategoryChange() {
+  const isRepay = $('#category').value === '信用卡還款';
+  $('#repay-to-row').classList.toggle('hidden', !isRepay);
+  $('#repay-to-account').required = isRepay;
+  if (isRepay) populateRepayToSelect();
+
+  if ($('#category').value === '其他') {
+    $('#custom-category-row').classList.remove('hidden');
+    $('#custom-category').required = true;
+  } else {
+    $('#custom-category-row').classList.add('hidden');
+    $('#custom-category').required = false;
+    $('#custom-category').value = '';
+  }
 }
 
 // ========== Assets ==========
@@ -572,7 +619,6 @@ function renderAssets() {
     if (a.type === '信用卡') creditDebt += mop;
     else gross += mop;
   });
-  // include MPF in assets
   let mpfTotal = 0;
   (mpfData.accounts || []).forEach(a => { mpfTotal += Number(a.balance) || 0; });
   gross += mpfTotal;
@@ -580,35 +626,24 @@ function renderAssets() {
   let otherLiab = 0;
   liabilities.forEach(l => { otherLiab += balancesToMOP(l.balances); });
   const totalLiab = creditDebt + otherLiab;
-  const net = gross - totalLiab;
 
   $('#assets-gross').textContent = 'MOP ' + formatMoney(gross);
   $('#assets-liability').textContent = 'MOP ' + formatMoney(totalLiab);
-  $('#assets-net').textContent = 'MOP ' + formatMoney(net);
+  $('#assets-net').textContent = 'MOP ' + formatMoney(gross - totalLiab);
 
   const assetAccounts = accounts.filter(a => a.type !== '信用卡' && balancesToMOP(a.balances) > 0);
-  destroyChart('assetsAcc');
-  destroyChart('assetsCur');
-  const noData = $('#no-assets-data');
-
   const chartItems = [
-    ...assetAccounts.map(a => ({ name: `${ACCOUNT_TYPE_ICONS[a.type] || ''} ${a.name}`, val: balancesToMOP(a.balances) })),
-    ...(mpfTotal > 0 ? [{ name: '🏛️ 強積金', val: mpfTotal }] : [])
-  ].sort((a, b) => b.val - a.val);
+    ...assetAccounts.map(a => ({ label: `${ACCOUNT_TYPE_ICONS[a.type] || ''} ${a.name}`, value: balancesToMOP(a.balances) })),
+    ...(mpfTotal > 0 ? [{ label: '🏛️ 強積金', value: mpfTotal }] : [])
+  ].sort((a, b) => b.value - a.value);
 
   if (!chartItems.length) {
-    noData.style.display = 'block';
-    $('#assetsAccountChart').style.display = 'none';
-    $('#assetsCurrencyChart').style.display = 'none';
+    $('#no-assets-data').style.display = 'block';
+    $('#assetsAccountBars').innerHTML = '';
+    $('#assetsCurrencyBars').innerHTML = '';
   } else {
-    noData.style.display = 'none';
-    $('#assetsAccountChart').style.display = 'block';
-    $('#assetsCurrencyChart').style.display = 'block';
-    charts.assetsAcc = makeHBarChart(
-      $('#assetsAccountChart'),
-      chartItems.map(i => i.name),
-      chartItems.map(i => i.val)
-    );
+    $('#no-assets-data').style.display = 'none';
+    renderBarList($('#assetsAccountBars'), chartItems);
     const byCur = { MOP: 0, HKD: 0, CNY: 0 };
     assetAccounts.forEach(a => {
       byCur.MOP += Number(a.balances.MOP || 0);
@@ -616,31 +651,27 @@ function renderAssets() {
       byCur.CNY += toMOP(a.balances.CNY || 0, 'CNY');
     });
     byCur.MOP += mpfTotal;
-    const curEntries = Object.entries(byCur).filter(([, v]) => v > 0);
-    charts.assetsCur = makeHBarChart(
-      $('#assetsCurrencyChart'),
-      curEntries.map(([c]) => c),
-      curEntries.map(([, v]) => v)
+    renderBarList($('#assetsCurrencyBars'),
+      Object.entries(byCur).filter(([, v]) => v > 0).map(([c, v]) => ({ label: c, value: v }))
     );
   }
 
   const detailEl = $('#assets-detail-list');
   detailEl.innerHTML = '';
   chartItems.forEach(i => {
-    const pct = gross ? ((i.val / gross) * 100).toFixed(1) : 0;
+    const pct = gross ? ((i.value / gross) * 100).toFixed(1) : 0;
     const item = document.createElement('div');
     item.className = 'account-item';
+    item.style.cursor = 'default';
     item.innerHTML = `
       <div class="account-item-header">
-        <div class="account-name">${escapeHtml(i.name)}</div>
-        <div>
-          <div class="account-mop-total">MOP ${formatMoney(i.val)}</div>
-          <div class="account-meta" style="text-align:right">${pct}%</div>
+        <div class="account-name">${escapeHtml(i.label)}</div>
+        <div style="text-align:right;font-weight:700;color:var(--primary)">MOP ${formatMoney(i.value)}
+          <div class="account-meta">${pct}%</div>
         </div>
       </div>`;
     detailEl.appendChild(item);
   });
-  if (!chartItems.length) detailEl.innerHTML = '<div class="empty-hint">請先到「戶口」新增資產戶口</div>';
 
   const liabEl = $('#liabilities-list');
   liabEl.innerHTML = '';
@@ -650,40 +681,40 @@ function renderAssets() {
   } else {
     $('#no-liabilities').style.display = 'none';
     ccList.forEach(a => {
+      const b = a.balances || {};
       const item = document.createElement('div');
       item.className = 'account-item';
+      item.style.cursor = 'default';
       item.innerHTML = `
         <div class="account-item-header">
-          <div>
-            <div class="account-name">💳 ${escapeHtml(a.name)}</div>
-            <div class="account-meta">信用卡欠款</div>
-          </div>
-          <div class="account-mop-total debt">MOP ${formatMoney(balancesToMOP(a.balances))}</div>
-        </div>`;
+          <div class="account-name">💳 ${escapeHtml(a.name)}</div>
+          <div class="account-meta">信用卡欠款</div>
+        </div>
+        <table class="account-currency-table">
+          <tr><td>MOP</td><td>${formatMoney(b.MOP || 0)}</td></tr>
+          <tr><td>HKD</td><td>${formatMoney(b.HKD || 0)}</td></tr>
+          <tr><td>CNY</td><td>${formatMoney(b.CNY || 0)}</td></tr>
+        </table>`;
       liabEl.appendChild(item);
     });
     liabilities.forEach(l => {
-      const mop = balancesToMOP(l.balances);
       const b = l.balances || {};
       const item = document.createElement('div');
       item.className = 'account-item';
+      item.style.cursor = 'default';
       item.innerHTML = `
         <div class="account-item-header">
-          <div>
-            <div class="account-name">${escapeHtml(l.name)}</div>
-            ${l.note ? `<div class="account-meta">${escapeHtml(l.note)}</div>` : ''}
-          </div>
+          <div class="account-name">${escapeHtml(l.name)}</div>
           <div class="account-actions">
-            <button class="edit" data-id="${l.id}">編輯</button>
-            <button class="delete" data-id="${l.id}">刪除</button>
+            <button type="button" class="edit" data-id="${l.id}">編輯</button>
+            <button type="button" class="delete" data-id="${l.id}">刪除</button>
           </div>
         </div>
-        <div class="account-balances">
-          <span class="bal-chip">MOP ${formatMoney(b.MOP || 0)}</span>
-          <span class="bal-chip">HKD ${formatMoney(b.HKD || 0)}</span>
-          <span class="bal-chip">CNY ${formatMoney(b.CNY || 0)}</span>
-        </div>
-        <div class="account-mop-total debt">合計 ≈ MOP ${formatMoney(mop)}</div>`;
+        <table class="account-currency-table">
+          <tr><td>MOP</td><td>${formatMoney(b.MOP || 0)}</td></tr>
+          <tr><td>HKD</td><td>${formatMoney(b.HKD || 0)}</td></tr>
+          <tr><td>CNY</td><td>${formatMoney(b.CNY || 0)}</td></tr>
+        </table>`;
       liabEl.appendChild(item);
     });
     liabEl.querySelectorAll('.edit').forEach(btn => {
@@ -717,22 +748,20 @@ function renderMpf() {
     const card = document.createElement('div');
     card.className = 'mpf-card';
     const changes = [...(acc.changes || [])].sort((a, b) => b.month.localeCompare(a.month));
-    let changesHtml = '';
-    if (changes.length) {
-      changesHtml = changes.map(c => {
-        const up = Number(c.amount) >= 0;
-        return `<div class="mpf-change-item">
-          <span>${c.month}${c.note ? ' · ' + escapeHtml(c.note) : ''}</span>
-          <span>
-            <span class="${up ? 'mpf-change-up' : 'mpf-change-down'}">${up ? '+' : ''}${formatMoney(c.amount)}</span>
-            <button class="edit-change" data-acc="${acc.id}" data-id="${c.id}" style="margin-left:6px;font-size:0.7rem;padding:1px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#f9fafb;cursor:pointer">編輯</button>
-            <button class="del-change" data-acc="${acc.id}" data-id="${c.id}" style="font-size:0.7rem;padding:1px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#f9fafb;cursor:pointer;color:#ef4444">刪</button>
-          </span>
-        </div>`;
-      }).join('');
-    } else {
-      changesHtml = '<div class="empty-hint" style="padding:8px">尚無月漲跌紀錄</div>';
-    }
+    let changesHtml = changes.length
+      ? changes.map(c => {
+          const up = Number(c.amount) >= 0;
+          return `<div class="mpf-change-item">
+            <span>${c.month}${c.note ? ' · ' + escapeHtml(c.note) : ''}</span>
+            <span>
+              <span class="${up ? 'mpf-change-up' : 'mpf-change-down'}">${up ? '+' : ''}${formatMoney(c.amount)}</span>
+              <button type="button" class="edit-change" data-acc="${acc.id}" data-id="${c.id}" style="margin-left:6px;font-size:0.7rem;padding:1px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#f9fafb;cursor:pointer">編輯</button>
+              <button type="button" class="del-change" data-acc="${acc.id}" data-id="${c.id}" style="font-size:0.7rem;padding:1px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#f9fafb;cursor:pointer;color:#ef4444">刪</button>
+            </span>
+          </div>`;
+        }).join('')
+      : '<div class="ledger-empty">尚無月漲跌紀錄</div>';
+
     card.innerHTML = `
       <div class="mpf-card-header">
         <div>
@@ -742,12 +771,12 @@ function renderMpf() {
         <div class="mpf-card-balance">MOP ${formatMoney(acc.balance)}</div>
       </div>
       <div class="account-actions" style="margin-bottom:8px">
-        <button class="add-change" data-id="${acc.id}">＋ 月漲跌</button>
-        <button class="edit-acc" data-id="${acc.id}">編輯</button>
-        <button class="delete del-acc" data-id="${acc.id}">刪除</button>
+        <button type="button" class="add-change" data-id="${acc.id}">＋ 月漲跌</button>
+        <button type="button" class="edit-acc" data-id="${acc.id}">編輯</button>
+        <button type="button" class="delete del-acc" data-id="${acc.id}">刪除</button>
       </div>
       <div class="mpf-changes">
-        <div class="mpf-changes-title"><span>月漲跌紀錄</span></div>
+        <div class="mpf-changes-title">月漲跌紀錄</div>
         ${changesHtml}
       </div>`;
     el.appendChild(card);
@@ -773,7 +802,7 @@ function renderMpf() {
     btn.addEventListener('click', () => {
       const acc = mpfData.accounts.find(a => a.id === btn.dataset.acc);
       if (!acc) return;
-      const ch = acc.changes.find(c => c.id === btn.dataset.id);
+      const ch = (acc.changes || []).find(c => c.id === btn.dataset.id);
       if (ch) {
         acc.balance = Number(acc.balance) - Number(ch.amount);
         acc.changes = acc.changes.filter(c => c.id !== btn.dataset.id);
@@ -784,7 +813,7 @@ function renderMpf() {
   });
 }
 
-// ========== Record CRUD ==========
+// ========== Balance effects ==========
 function applyBalanceDelta(accountId, currency, delta) {
   const acc = accounts.find(a => a.id === accountId);
   if (!acc) return;
@@ -793,17 +822,56 @@ function applyBalanceDelta(accountId, currency, delta) {
   saveJSON(ACCOUNTS_KEY, accounts);
 }
 
-function balanceDeltaForRecord(type, amount, accountType) {
-  if (type === 'repayment') {
-    // repayment from this account: always decrease source
-    return -Number(amount);
+function reverseRecordEffect(rec) {
+  if (!rec || !rec.accountId) return;
+  const acc = accounts.find(a => a.id === rec.accountId);
+  if (!acc) return;
+  const amt = Number(rec.amount);
+
+  if (isRepayment(rec)) {
+    // reverse: add back to source, add back debt on card
+    applyBalanceDelta(rec.accountId, rec.currency, amt);
+    if (rec.repayToId) applyBalanceDelta(rec.repayToId, rec.currency, amt);
+    return;
   }
-  if (accountType === '信用卡') {
-    return type === 'expense' ? Number(amount) : -Number(amount);
+
+  if (acc.type === '信用卡') {
+    // reverse expense (debt+): decrease debt; reverse income: increase debt
+    applyBalanceDelta(rec.accountId, rec.currency, rec.type === 'expense' ? -amt : amt);
+  } else if (acc.type === '電子錢包' && rec.type === 'expense' && acc.linkedBankId) {
+    // reverse: add back wallet + linked bank
+    applyBalanceDelta(rec.accountId, rec.currency, amt);
+    applyBalanceDelta(acc.linkedBankId, rec.currency, amt);
+  } else {
+    applyBalanceDelta(rec.accountId, rec.currency, rec.type === 'expense' ? amt : -amt);
   }
-  return type === 'expense' ? -Number(amount) : Number(amount);
 }
 
+function applyRecordEffect(rec) {
+  if (!rec || !rec.accountId) return;
+  const acc = accounts.find(a => a.id === rec.accountId);
+  if (!acc) return;
+  const amt = Number(rec.amount);
+
+  if (isRepayment(rec)) {
+    // source decreases, credit card debt decreases
+    applyBalanceDelta(rec.accountId, rec.currency, -amt);
+    if (rec.repayToId) applyBalanceDelta(rec.repayToId, rec.currency, -amt);
+    return;
+  }
+
+  if (acc.type === '信用卡') {
+    applyBalanceDelta(rec.accountId, rec.currency, rec.type === 'expense' ? amt : -amt);
+  } else if (acc.type === '電子錢包' && rec.type === 'expense' && acc.linkedBankId) {
+    // B: deduct wallet AND linked bank
+    applyBalanceDelta(rec.accountId, rec.currency, -amt);
+    applyBalanceDelta(acc.linkedBankId, rec.currency, -amt);
+  } else {
+    applyBalanceDelta(rec.accountId, rec.currency, rec.type === 'expense' ? -amt : amt);
+  }
+}
+
+// ========== Record Modal ==========
 function openAddModal() {
   if (!accounts.length) {
     alert('請先到「戶口」頁面新增至少一個戶口');
@@ -817,8 +885,7 @@ function openAddModal() {
   $$('.type-btn').forEach(b => b.classList.remove('active'));
   $('.type-btn[data-type="expense"]').classList.add('active');
   $('#custom-category-row').classList.add('hidden');
-  $('#custom-category').required = false;
-  onTypeChange();
+  $('#repay-to-row').classList.add('hidden');
   populateAccountSelect();
   $('#modal-overlay').classList.remove('hidden');
 }
@@ -834,83 +901,41 @@ function openEditModal(id) {
   $('#note').value = r.note || '';
   currentType = r.type;
   $$('.type-btn').forEach(b => b.classList.remove('active'));
-  const typeBtn = $(`.type-btn[data-type="${r.type}"]`);
-  if (typeBtn) typeBtn.classList.add('active');
-  onTypeChange();
-  if (r.type !== 'repayment') {
-    const preset = Array.from($('#category').options).map(o => o.value);
-    if (preset.includes(r.category)) {
-      $('#category').value = r.category;
-      $('#custom-category-row').classList.add('hidden');
-      $('#custom-category').required = false;
-    } else {
-      $('#category').value = '其他';
-      $('#custom-category-row').classList.remove('hidden');
-      $('#custom-category').value = r.category;
-      $('#custom-category').required = true;
-    }
+  const tb = $(`.type-btn[data-type="${r.type}"]`);
+  if (tb) tb.classList.add('active');
+
+  const preset = Array.from($('#category').options).map(o => o.value);
+  if (preset.includes(r.category)) {
+    $('#category').value = r.category;
+    $('#custom-category-row').classList.add('hidden');
+  } else {
+    $('#category').value = '其他';
+    $('#custom-category-row').classList.remove('hidden');
+    $('#custom-category').value = r.category;
   }
+  onCategoryChange();
   populateAccountSelect(r.accountId || '');
-  if (r.type === 'repayment' && r.repayToId) populateRepayToSelect(r.repayToId);
+  if (isRepayment(r) && r.repayToId) populateRepayToSelect(r.repayToId);
   $('#modal-overlay').classList.remove('hidden');
 }
 
 function closeModal() { $('#modal-overlay').classList.add('hidden'); }
-
-function toggleCustomCategory() {
-  if ($('#category').value === '其他') {
-    $('#custom-category-row').classList.remove('hidden');
-    $('#custom-category').required = true;
-    $('#custom-category').focus();
-  } else {
-    $('#custom-category-row').classList.add('hidden');
-    $('#custom-category').required = false;
-    $('#custom-category').value = '';
-  }
-}
-
-function reverseRecordEffect(rec) {
-  if (!rec || !rec.accountId) return;
-  const acc = accounts.find(a => a.id === rec.accountId);
-  if (acc) {
-    const rev = -balanceDeltaForRecord(rec.type, rec.amount, acc.type);
-    applyBalanceDelta(rec.accountId, rec.currency, rev);
-  }
-  if (rec.type === 'repayment' && rec.repayToId) {
-    // reverse credit card debt reduction: add back
-    applyBalanceDelta(rec.repayToId, rec.currency, Number(rec.amount));
-  }
-}
-
-function applyRecordEffect(rec) {
-  const acc = accounts.find(a => a.id === rec.accountId);
-  if (acc) {
-    const d = balanceDeltaForRecord(rec.type, rec.amount, acc.type);
-    applyBalanceDelta(rec.accountId, rec.currency, d);
-  }
-  if (rec.type === 'repayment' && rec.repayToId) {
-    // decrease credit card debt
-    applyBalanceDelta(rec.repayToId, rec.currency, -Number(rec.amount));
-  }
-}
 
 function handleRecordSubmit(e) {
   e.preventDefault();
   const accountId = $('#record-account').value;
   if (!accountId) { alert('請選擇戶口'); return; }
 
-  let category = '';
+  let category = $('#category').value;
+  if (category === '其他') {
+    category = $('#custom-category').value.trim();
+    if (!category) { alert('請輸入自訂分類名稱'); return; }
+  }
+
   let repayToId = '';
-  if (currentType === 'repayment') {
-    category = '信用卡還款';
+  if (category === '信用卡還款') {
     repayToId = $('#repay-to-account').value;
     if (!repayToId) { alert('請選擇還款至哪個信用卡'); return; }
-  } else {
-    category = $('#category').value;
-    if (category === '其他') {
-      category = $('#custom-category').value.trim();
-      if (!category) { alert('請輸入自訂分類名稱'); return; }
-    }
   }
 
   const old = records.find(r => r.id === $('#edit-id').value);
@@ -937,6 +962,7 @@ function handleRecordSubmit(e) {
   closeModal();
   if (currentPage === 'monthly') renderMonthly();
   else if (currentPage === 'yearly') renderYearly();
+  else if (currentPage === 'accounts') renderAccounts();
 }
 
 function deleteRecord(id) {
@@ -955,6 +981,7 @@ function openAddAccountModal() {
   $('#acc-bal-mop').value = 0;
   $('#acc-bal-hkd').value = 0;
   $('#acc-bal-cny').value = 0;
+  $('#linked-bank-row').classList.add('hidden');
   $('#account-modal-overlay').classList.remove('hidden');
 }
 function openEditAccountModal(id) {
@@ -968,22 +995,30 @@ function openEditAccountModal(id) {
   $('#acc-bal-hkd').value = a.balances?.HKD || 0;
   $('#acc-bal-cny').value = a.balances?.CNY || 0;
   $('#account-note').value = a.note || '';
+  onAccountTypeChange();
+  if (a.type === '電子錢包') populateLinkedBankSelect(a.linkedBankId || '');
   $('#account-modal-overlay').classList.remove('hidden');
 }
 function closeAccountModal() { $('#account-modal-overlay').classList.add('hidden'); }
 function handleAccountSubmit(e) {
   e.preventDefault();
+  const type = $('#account-type').value;
   const acc = {
     id: $('#account-edit-id').value || String(Date.now()),
     name: $('#account-name').value.trim(),
-    type: $('#account-type').value,
+    type,
     balances: {
       MOP: Number($('#acc-bal-mop').value) || 0,
       HKD: Number($('#acc-bal-hkd').value) || 0,
       CNY: Number($('#acc-bal-cny').value) || 0
     },
+    linkedBankId: type === '電子錢包' ? ($('#linked-bank').value || '') : '',
     note: $('#account-note').value.trim()
   };
+  if (type === '電子錢包' && !acc.linkedBankId) {
+    alert('請選擇扣帳銀行戶口');
+    return;
+  }
   const idx = accounts.findIndex(a => a.id === acc.id);
   if (idx >= 0) accounts[idx] = acc;
   else accounts.push(acc);
@@ -992,7 +1027,7 @@ function handleAccountSubmit(e) {
   renderAccounts();
 }
 
-// ========== Repay (accounts page shortcut) ==========
+// ========== Repay ==========
 function openRepayModal() {
   const sources = accounts.filter(a => a.type !== '信用卡');
   const cards = accounts.filter(a => a.type === '信用卡');
@@ -1024,24 +1059,16 @@ function openRepayModal() {
 function closeRepayModal() { $('#repay-modal-overlay').classList.add('hidden'); }
 function handleRepaySubmit(e) {
   e.preventDefault();
-  const fromId = $('#repay-from').value;
-  const toId = $('#repay-to').value;
-  const currency = $('#repay-currency').value;
-  const amount = Number($('#repay-amount').value);
-  const date = $('#repay-date').value;
-  const note = $('#repay-note').value.trim();
-  if (amount <= 0) return;
-
   const record = {
     id: String(Date.now()),
-    type: 'repayment',
-    amount,
-    currency,
-    date,
+    type: 'expense',
+    amount: Number($('#repay-amount').value),
+    currency: $('#repay-currency').value,
+    date: $('#repay-date').value,
     category: '信用卡還款',
-    accountId: fromId,
-    repayToId: toId,
-    note: note || '信用卡還款',
+    accountId: $('#repay-from').value,
+    repayToId: $('#repay-to').value,
+    note: $('#repay-note').value.trim() || '信用卡還款',
     createdAt: new Date().toISOString()
   };
   applyRecordEffect(record);
@@ -1094,7 +1121,7 @@ function handleLiabilitySubmit(e) {
   renderAssets();
 }
 
-// ========== MPF Account / Change ==========
+// ========== MPF ==========
 function openAddMpfAccountModal() {
   $('#mpf-account-modal-title').textContent = '新增強積金戶口';
   $('#mpf-account-form').reset();
@@ -1164,22 +1191,14 @@ function handleMpfChangeSubmit(e) {
   const amount = Number($('#mpf-change-amount').value);
   const month = $('#mpf-change-month').value;
   const note = $('#mpf-change-note').value.trim();
-
   if (editId) {
     const old = acc.changes.find(c => c.id === editId);
     if (old) {
       acc.balance = Number(acc.balance) - Number(old.amount) + amount;
-      old.month = month;
-      old.amount = amount;
-      old.note = note;
+      old.month = month; old.amount = amount; old.note = note;
     }
   } else {
-    acc.changes.push({
-      id: String(Date.now()),
-      month,
-      amount,
-      note
-    });
+    acc.changes.push({ id: String(Date.now()), month, amount, note });
     acc.balance = Number(acc.balance) + amount;
   }
   saveJSON(MPF_KEY, mpfData);
