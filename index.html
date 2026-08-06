@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>記帳本</title>
   <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="app">
@@ -28,21 +27,30 @@
         <h2 id="current-month-label">2026年8月</h2>
         <button id="btn-next-month" class="btn-icon">›</button>
       </div>
-      <div class="summary-cards four">
-        <div class="card income"><div class="label">本月收入</div><div class="value" id="summary-income">MOP 0</div></div>
-        <div class="card expense"><div class="label">本月支出（不含還款）</div><div class="value" id="summary-expense">MOP 0</div></div>
-        <div class="card expense"><div class="label">實際支出（含還款）</div><div class="value" id="summary-expense-all">MOP 0</div></div>
-        <div class="card balance"><div class="label">結餘（收入−實際支出）</div><div class="value" id="summary-balance">MOP 0</div></div>
+      <div class="summary-cards">
+        <div class="card income">
+          <div class="label">本月收入</div>
+          <div class="value" id="summary-income">MOP 0</div>
+        </div>
+        <div class="card expense expense-split">
+          <div class="label">本月支出</div>
+          <div class="split-line"><span>不含還款</span><strong id="summary-expense">MOP 0</strong></div>
+          <div class="split-line"><span>實際(含還款)</span><strong id="summary-expense-all">MOP 0</strong></div>
+        </div>
+        <div class="card balance">
+          <div class="label">結餘</div>
+          <div class="value" id="summary-balance">MOP 0</div>
+        </div>
       </div>
       <section class="chart-section">
         <h3>本月支出分類（不含還款）</h3>
-        <div class="chart-container chart-sm"><canvas id="categoryChart"></canvas></div>
+        <div id="categoryBars" class="bar-list"></div>
         <div id="no-chart-data" class="empty-hint" style="display:none;">本月尚無支出資料</div>
       </section>
       <section class="records-section">
         <div class="section-header">
           <h3>本月紀錄</h3>
-          <button id="btn-toggle-filter" class="btn btn-sm">篩選</button>
+          <button type="button" id="btn-toggle-filter" class="btn btn-sm">篩選</button>
         </div>
         <div id="filter-panel" class="filter-panel hidden">
           <div class="filter-row">
@@ -51,20 +59,15 @@
               <option value="">全部</option>
               <option value="income">收入</option>
               <option value="expense">支出</option>
-              <option value="repayment">還款</option>
             </select>
           </div>
           <div class="filter-row">
             <label>分類</label>
-            <select id="filter-category">
-              <option value="">全部</option>
-            </select>
+            <select id="filter-category"><option value="">全部</option></select>
           </div>
           <div class="filter-row">
             <label>戶口</label>
-            <select id="filter-account">
-              <option value="">全部</option>
-            </select>
+            <select id="filter-account"><option value="">全部</option></select>
           </div>
           <div class="filter-row">
             <label>日期由</label>
@@ -98,11 +101,11 @@
       </div>
       <section class="chart-section">
         <h3>各月收支概況</h3>
-        <div class="chart-container chart-md"><canvas id="yearlyMonthChart"></canvas></div>
+        <div id="yearlyMonthBars" class="bar-list"></div>
       </section>
       <section class="chart-section">
         <h3>年度支出分類（不含還款）</h3>
-        <div class="chart-container chart-sm"><canvas id="yearlyCategoryChart"></canvas></div>
+        <div id="yearlyCategoryBars" class="bar-list"></div>
         <div id="no-year-cat-data" class="empty-hint" style="display:none;">本年尚無支出資料</div>
       </section>
       <section class="records-section">
@@ -138,12 +141,12 @@
       </div>
       <section class="chart-section">
         <h3>資產分布（依戶口）</h3>
-        <div class="chart-container chart-sm"><canvas id="assetsAccountChart"></canvas></div>
+        <div id="assetsAccountBars" class="bar-list"></div>
         <div id="no-assets-data" class="empty-hint" style="display:none;">尚無戶口資料</div>
       </section>
       <section class="chart-section">
         <h3>資產分布（依貨幣）</h3>
-        <div class="chart-container chart-sm"><canvas id="assetsCurrencyChart"></canvas></div>
+        <div id="assetsCurrencyBars" class="bar-list"></div>
       </section>
       <section class="records-section">
         <h3>資產明細</h3>
@@ -170,16 +173,15 @@
     <div class="modal">
       <div class="modal-header">
         <h3 id="modal-title">新增紀錄</h3>
-        <button id="btn-close-modal" class="btn-icon">×</button>
+        <button type="button" id="btn-close-modal" class="btn-icon">×</button>
       </div>
       <form id="record-form">
         <input type="hidden" id="edit-id">
         <div class="form-row">
           <label>類型</label>
-          <div class="type-toggle three">
+          <div class="type-toggle">
             <button type="button" class="type-btn active" data-type="expense">支出</button>
             <button type="button" class="type-btn" data-type="income">收入</button>
-            <button type="button" class="type-btn" data-type="repayment">還款</button>
           </div>
         </div>
         <div class="form-row">
@@ -197,7 +199,7 @@
           <label for="date">日期</label>
           <input type="date" id="date" required>
         </div>
-        <div class="form-row" id="category-row">
+        <div class="form-row">
           <label for="category">分類</label>
           <select id="category" required>
             <option value="餐飲">🍔 餐飲</option>
@@ -215,6 +217,7 @@
             <option value="淘寶">🛒 淘寶</option>
             <option value="上網費">🌐 上網費</option>
             <option value="醫療">🏥 醫療</option>
+            <option value="信用卡還款">💳 信用卡還款</option>
             <option value="其他">🏷️ 其他</option>
           </select>
         </div>
@@ -249,7 +252,7 @@
     <div class="modal">
       <div class="modal-header">
         <h3 id="account-modal-title">新增戶口</h3>
-        <button id="btn-close-account-modal" class="btn-icon">×</button>
+        <button type="button" id="btn-close-account-modal" class="btn-icon">×</button>
       </div>
       <form id="account-form">
         <input type="hidden" id="account-edit-id">
@@ -267,6 +270,13 @@
             <option value="投資">📈 投資</option>
             <option value="其他">🏷️ 其他</option>
           </select>
+        </div>
+        <div class="form-row hidden" id="linked-bank-row">
+          <label for="linked-bank">扣帳銀行戶口</label>
+          <select id="linked-bank">
+            <option value="">請選擇銀行戶口</option>
+          </select>
+          <p class="field-hint">使用此電子錢包記支出時，會同時從綁定銀行扣款</p>
         </div>
         <div class="form-row">
           <label>各貨幣餘額</label>
@@ -294,13 +304,13 @@
     <div class="modal">
       <div class="modal-header">
         <h3 id="liability-modal-title">新增扣減項</h3>
-        <button id="btn-close-liability-modal" class="btn-icon">×</button>
+        <button type="button" id="btn-close-liability-modal" class="btn-icon">×</button>
       </div>
       <form id="liability-form">
         <input type="hidden" id="liability-edit-id">
         <div class="form-row">
           <label for="liability-name">名稱</label>
-          <input type="text" id="liability-name" placeholder="例如：車貸、私人借款" required>
+          <input type="text" id="liability-name" placeholder="例如：車貸" required>
         </div>
         <div class="form-row">
           <label>各貨幣金額</label>
@@ -322,12 +332,12 @@
     </div>
   </div>
 
-  <!-- 還款快捷（戶口頁） -->
+  <!-- 還款 Modal -->
   <div id="repay-modal-overlay" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
         <h3>信用卡還款</h3>
-        <button id="btn-close-repay" class="btn-icon">×</button>
+        <button type="button" id="btn-close-repay" class="btn-icon">×</button>
       </div>
       <form id="repay-form">
         <div class="form-row">
@@ -371,13 +381,13 @@
     <div class="modal">
       <div class="modal-header">
         <h3 id="mpf-account-modal-title">新增強積金戶口</h3>
-        <button id="btn-close-mpf-account" class="btn-icon">×</button>
+        <button type="button" id="btn-close-mpf-account" class="btn-icon">×</button>
       </div>
       <form id="mpf-account-form">
         <input type="hidden" id="mpf-account-edit-id">
         <div class="form-row">
           <label for="mpf-account-name">名稱</label>
-          <input type="text" id="mpf-account-name" placeholder="例如：僱主強積金 / 自願性供款" required>
+          <input type="text" id="mpf-account-name" placeholder="例如：僱主強積金" required>
         </div>
         <div class="form-row">
           <label for="mpf-account-balance">目前結餘 (MOP)</label>
@@ -400,7 +410,7 @@
     <div class="modal">
       <div class="modal-header">
         <h3 id="mpf-change-modal-title">新增月漲跌</h3>
-        <button id="btn-close-mpf-change" class="btn-icon">×</button>
+        <button type="button" id="btn-close-mpf-change" class="btn-icon">×</button>
       </div>
       <form id="mpf-change-form">
         <input type="hidden" id="mpf-change-edit-id">
@@ -416,7 +426,7 @@
         </div>
         <div class="form-row">
           <label for="mpf-change-note">備註</label>
-          <input type="text" id="mpf-change-note" placeholder="選填（供款、投資回報等）">
+          <input type="text" id="mpf-change-note" placeholder="選填">
         </div>
         <div class="form-actions">
           <button type="button" id="btn-cancel-mpf-change" class="btn">取消</button>
@@ -431,7 +441,7 @@
     <div class="modal">
       <div class="modal-header">
         <h3>匯率設定</h3>
-        <button id="btn-close-rates" class="btn-icon">×</button>
+        <button type="button" id="btn-close-rates" class="btn-icon">×</button>
       </div>
       <form id="rates-form">
         <p class="rates-hint">設定貨幣兌換匯率。摘要與圖表會依此換算成澳門幣。</p>
@@ -446,10 +456,6 @@
         <div class="form-row">
           <label for="rate-hkd-cny">1 HKD = ? CNY</label>
           <input type="number" id="rate-hkd-cny" step="0.0001" min="0.0001" required>
-        </div>
-        <div class="form-row">
-          <label>1 MOP = 1 MOP</label>
-          <input type="text" value="1（基準貨幣，不可改）" disabled>
         </div>
         <div class="form-actions">
           <button type="button" id="btn-reset-rates" class="btn">還原預設</button>
