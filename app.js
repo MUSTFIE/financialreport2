@@ -62,6 +62,12 @@ function balancesToMOP(b) {
 function isRepayment(r) {
   return r.category === '信用卡還款' || !!r.repayToId;
 }
+/** 信用卡消費（非還款）：記在信用卡戶口的支出 */
+function isCreditCardPurchase(r) {
+  if (!r || r.type !== 'expense' || isRepayment(r)) return false;
+  const acc = accounts.find(a => a.id === r.accountId);
+  return !!(acc && acc.type === '信用卡');
+}
 
 let records = loadJSON(STORAGE_KEY, []);
 let accounts = loadJSON(ACCOUNTS_KEY, []);
@@ -279,17 +285,24 @@ function populateFilterOptions() {
 
 function renderMonthly() {
   $('#current-month-label').textContent = `${currentYear}年${currentMonth + 1}月`;
-  let income = 0, expense = 0, repayment = 0;
+  // 消費支出：含刷卡、不含還款
+  // 實際支出：一般支出（非刷卡）+ 還款
+  // 結餘：收入 − 消費支出
+  let income = 0, consumption = 0, ccPurchase = 0, repayment = 0;
   getMonthRecords().forEach(r => {
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') income += amt;
     else if (isRepayment(r)) repayment += amt;
-    else expense += amt;
+    else {
+      consumption += amt;
+      if (isCreditCardPurchase(r)) ccPurchase += amt;
+    }
   });
+  const actual = consumption - ccPurchase + repayment;
   $('#summary-income').textContent = money('MOP', income);
-  $('#summary-expense').textContent = money('MOP', expense);
-  $('#summary-expense-all').textContent = money('MOP', expense + repayment);
-  $('#summary-balance').textContent = money('MOP', income - expense - repayment);
+  $('#summary-expense').textContent = money('MOP', consumption);
+  $('#summary-expense-all').textContent = money('MOP', actual);
+  $('#summary-balance').textContent = money('MOP', income - consumption);
   populateFilterOptions();
   renderMonthBars();
   renderMonthRecords();
@@ -351,19 +364,19 @@ function getYearRecords() {
 function renderYearly() {
   $('#current-year-label').textContent = `${currentYear}年`;
   const yearRecs = getYearRecords();
-  let income = 0, expense = 0, repayment = 0;
+  let income = 0, consumption = 0;
   const monthsInc = Array(12).fill(0);
-  const monthsExp = Array(12).fill(0);
+  const monthsExp = Array(12).fill(0); // 各月消費支出（含刷卡、不含還款）
   yearRecs.forEach(r => {
     const m = new Date(r.date).getMonth();
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') { income += amt; monthsInc[m] += amt; }
-    else if (isRepayment(r)) { repayment += amt; monthsExp[m] += amt; }
-    else { expense += amt; monthsExp[m] += amt; }
+    else if (isRepayment(r)) { /* 還款不計入消費支出 */ }
+    else { consumption += amt; monthsExp[m] += amt; }
   });
   $('#year-income').textContent = money('MOP', income);
-  $('#year-expense').textContent = money('MOP', expense);
-  $('#year-balance').textContent = money('MOP', income - expense - repayment);
+  $('#year-expense').textContent = money('MOP', consumption);
+  $('#year-balance').textContent = money('MOP', income - consumption);
 
   const expRecs = yearRecs.filter(r => r.type === 'expense' && !isRepayment(r));
   if (!expRecs.length) {
