@@ -17,7 +17,7 @@
         <button id="btn-add-account" class="btn primary page-only hidden" data-page="accounts">＋ 新增戶口</button>
         <button id="btn-repay" class="btn page-only hidden" data-page="accounts">💳 還款</button>
         <button id="btn-add-liability" class="btn page-only hidden" data-page="assets">＋ 扣減項</button>
-        <button id="btn-add-mpf" class="btn primary page-only hidden" data-page="mpf">＋ 供款紀錄</button>
+        <button id="btn-add-mpf-account" class="btn primary page-only hidden" data-page="mpf">＋ 強積金戶口</button>
       </div>
     </header>
 
@@ -28,18 +28,57 @@
         <h2 id="current-month-label">2026年8月</h2>
         <button id="btn-next-month" class="btn-icon">›</button>
       </div>
-      <div class="summary-cards">
-        <div class="card income"><div class="label">本月收入 (MOP)</div><div class="value" id="summary-income">MOP 0</div></div>
-        <div class="card expense"><div class="label">本月支出 (MOP)</div><div class="value" id="summary-expense">MOP 0</div></div>
-        <div class="card balance"><div class="label">結餘 (MOP)</div><div class="value" id="summary-balance">MOP 0</div></div>
+      <div class="summary-cards four">
+        <div class="card income"><div class="label">本月收入</div><div class="value" id="summary-income">MOP 0</div></div>
+        <div class="card expense"><div class="label">本月支出（不含還款）</div><div class="value" id="summary-expense">MOP 0</div></div>
+        <div class="card expense"><div class="label">實際支出（含還款）</div><div class="value" id="summary-expense-all">MOP 0</div></div>
+        <div class="card balance"><div class="label">結餘（收入−實際支出）</div><div class="value" id="summary-balance">MOP 0</div></div>
       </div>
       <section class="chart-section">
-        <h3>本月支出分類 (MOP)</h3>
-        <div class="chart-container"><canvas id="categoryChart"></canvas></div>
+        <h3>本月支出分類（不含還款）</h3>
+        <div class="chart-container chart-sm"><canvas id="categoryChart"></canvas></div>
         <div id="no-chart-data" class="empty-hint" style="display:none;">本月尚無支出資料</div>
       </section>
       <section class="records-section">
-        <h3>本月紀錄</h3>
+        <div class="section-header">
+          <h3>本月紀錄</h3>
+          <button id="btn-toggle-filter" class="btn btn-sm">篩選</button>
+        </div>
+        <div id="filter-panel" class="filter-panel hidden">
+          <div class="filter-row">
+            <label>類型</label>
+            <select id="filter-type">
+              <option value="">全部</option>
+              <option value="income">收入</option>
+              <option value="expense">支出</option>
+              <option value="repayment">還款</option>
+            </select>
+          </div>
+          <div class="filter-row">
+            <label>分類</label>
+            <select id="filter-category">
+              <option value="">全部</option>
+            </select>
+          </div>
+          <div class="filter-row">
+            <label>戶口</label>
+            <select id="filter-account">
+              <option value="">全部</option>
+            </select>
+          </div>
+          <div class="filter-row">
+            <label>日期由</label>
+            <input type="date" id="filter-date-from">
+          </div>
+          <div class="filter-row">
+            <label>日期至</label>
+            <input type="date" id="filter-date-to">
+          </div>
+          <div class="filter-actions">
+            <button type="button" id="btn-filter-reset" class="btn btn-sm">清除</button>
+            <button type="button" id="btn-filter-apply" class="btn btn-sm primary">套用</button>
+          </div>
+        </div>
         <div id="records-list"></div>
         <div id="no-records" class="empty-hint">本月尚無紀錄，點擊上方按鈕新增</div>
       </section>
@@ -53,17 +92,17 @@
         <button id="btn-next-year" class="btn-icon">›</button>
       </div>
       <div class="summary-cards">
-        <div class="card income"><div class="label">年度收入 (MOP)</div><div class="value" id="year-income">MOP 0</div></div>
-        <div class="card expense"><div class="label">年度支出 (MOP)</div><div class="value" id="year-expense">MOP 0</div></div>
-        <div class="card balance"><div class="label">年度結餘 (MOP)</div><div class="value" id="year-balance">MOP 0</div></div>
+        <div class="card income"><div class="label">年度收入</div><div class="value" id="year-income">MOP 0</div></div>
+        <div class="card expense"><div class="label">年度支出（不含還款）</div><div class="value" id="year-expense">MOP 0</div></div>
+        <div class="card balance"><div class="label">年度結餘</div><div class="value" id="year-balance">MOP 0</div></div>
       </div>
       <section class="chart-section">
-        <h3>各月收支概況 (MOP)</h3>
-        <div class="chart-container chart-tall"><canvas id="yearlyMonthChart"></canvas></div>
+        <h3>各月收支概況</h3>
+        <div class="chart-container chart-md"><canvas id="yearlyMonthChart"></canvas></div>
       </section>
       <section class="chart-section">
-        <h3>年度支出分類 (MOP)</h3>
-        <div class="chart-container"><canvas id="yearlyCategoryChart"></canvas></div>
+        <h3>年度支出分類（不含還款）</h3>
+        <div class="chart-container chart-sm"><canvas id="yearlyCategoryChart"></canvas></div>
         <div id="no-year-cat-data" class="empty-hint" style="display:none;">本年尚無支出資料</div>
       </section>
       <section class="records-section">
@@ -81,6 +120,15 @@
       <div id="no-accounts" class="empty-hint">尚未新增任何戶口</div>
     </div>
 
+    <!-- 強積金 -->
+    <div id="page-mpf" class="page">
+      <div class="summary-cards single">
+        <div class="card balance"><div class="label">強積金總結餘 (MOP)</div><div class="value" id="mpf-total">MOP 0</div></div>
+      </div>
+      <div id="mpf-accounts-list"></div>
+      <div id="no-mpf-accounts" class="empty-hint">尚未新增強積金戶口</div>
+    </div>
+
     <!-- 資產 -->
     <div id="page-assets" class="page">
       <div class="summary-cards">
@@ -90,12 +138,12 @@
       </div>
       <section class="chart-section">
         <h3>資產分布（依戶口）</h3>
-        <div class="chart-container"><canvas id="assetsAccountChart"></canvas></div>
+        <div class="chart-container chart-sm"><canvas id="assetsAccountChart"></canvas></div>
         <div id="no-assets-data" class="empty-hint" style="display:none;">尚無戶口資料</div>
       </section>
       <section class="chart-section">
         <h3>資產分布（依貨幣）</h3>
-        <div class="chart-container chart-medium"><canvas id="assetsCurrencyChart"></canvas></div>
+        <div class="chart-container chart-sm"><canvas id="assetsCurrencyChart"></canvas></div>
       </section>
       <section class="records-section">
         <h3>資產明細</h3>
@@ -108,38 +156,12 @@
       </section>
     </div>
 
-    <!-- 強積金 -->
-    <div id="page-mpf" class="page">
-      <div class="summary-cards">
-        <div class="card balance"><div class="label">強積金總結餘 (MOP)</div><div class="value" id="mpf-total">MOP 0</div></div>
-        <div class="card income"><div class="label">本年僱員供款</div><div class="value" id="mpf-employee-year">MOP 0</div></div>
-        <div class="card income"><div class="label">本年僱主供款</div><div class="value" id="mpf-employer-year">MOP 0</div></div>
-      </div>
-      <section class="chart-section">
-        <h3>基金配置</h3>
-        <div class="chart-container chart-medium"><canvas id="mpfFundChart"></canvas></div>
-        <div id="no-mpf-fund" class="empty-hint" style="display:none;">尚未設定基金配置</div>
-      </section>
-      <section class="records-section">
-        <div class="section-header">
-          <h3>基金配置</h3>
-          <button id="btn-edit-mpf-funds" class="btn btn-sm">編輯配置</button>
-        </div>
-        <div id="mpf-funds-list"></div>
-      </section>
-      <section class="records-section">
-        <h3>供款紀錄</h3>
-        <div id="mpf-contrib-list"></div>
-        <div id="no-mpf-contrib" class="empty-hint">尚未有供款紀錄</div>
-      </section>
-    </div>
-
     <nav class="bottom-nav">
       <button class="nav-btn active" data-page="monthly"><span class="nav-icon">📝</span><span>記帳</span></button>
       <button class="nav-btn" data-page="yearly"><span class="nav-icon">📅</span><span>年度</span></button>
       <button class="nav-btn" data-page="accounts"><span class="nav-icon">🏦</span><span>戶口</span></button>
-      <button class="nav-btn" data-page="assets"><span class="nav-icon">💎</span><span>資產</span></button>
       <button class="nav-btn" data-page="mpf"><span class="nav-icon">🏛️</span><span>強積金</span></button>
+      <button class="nav-btn" data-page="assets"><span class="nav-icon">💎</span><span>資產</span></button>
     </nav>
   </div>
 
@@ -154,9 +176,10 @@
         <input type="hidden" id="edit-id">
         <div class="form-row">
           <label>類型</label>
-          <div class="type-toggle">
+          <div class="type-toggle three">
             <button type="button" class="type-btn active" data-type="expense">支出</button>
             <button type="button" class="type-btn" data-type="income">收入</button>
+            <button type="button" class="type-btn" data-type="repayment">還款</button>
           </div>
         </div>
         <div class="form-row">
@@ -174,7 +197,7 @@
           <label for="date">日期</label>
           <input type="date" id="date" required>
         </div>
-        <div class="form-row">
+        <div class="form-row" id="category-row">
           <label for="category">分類</label>
           <select id="category" required>
             <option value="餐飲">🍔 餐飲</option>
@@ -204,6 +227,10 @@
           <select id="record-account" required>
             <option value="">請選擇戶口</option>
           </select>
+        </div>
+        <div class="form-row hidden" id="repay-to-row">
+          <label for="repay-to-account">還款至信用卡</label>
+          <select id="repay-to-account"></select>
         </div>
         <div class="form-row">
           <label for="note">備註</label>
@@ -295,7 +322,7 @@
     </div>
   </div>
 
-  <!-- 還款 Modal -->
+  <!-- 還款快捷（戶口頁） -->
   <div id="repay-modal-overlay" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
@@ -339,63 +366,67 @@
     </div>
   </div>
 
-  <!-- 強積金供款 Modal -->
-  <div id="mpf-modal-overlay" class="modal-overlay hidden">
+  <!-- 強積金戶口 Modal -->
+  <div id="mpf-account-modal-overlay" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
-        <h3 id="mpf-modal-title">新增供款紀錄</h3>
-        <button id="btn-close-mpf-modal" class="btn-icon">×</button>
+        <h3 id="mpf-account-modal-title">新增強積金戶口</h3>
+        <button id="btn-close-mpf-account" class="btn-icon">×</button>
       </div>
-      <form id="mpf-form">
-        <input type="hidden" id="mpf-edit-id">
+      <form id="mpf-account-form">
+        <input type="hidden" id="mpf-account-edit-id">
         <div class="form-row">
-          <label for="mpf-date">日期</label>
-          <input type="date" id="mpf-date" required>
+          <label for="mpf-account-name">名稱</label>
+          <input type="text" id="mpf-account-name" placeholder="例如：僱主強積金 / 自願性供款" required>
         </div>
         <div class="form-row">
-          <label for="mpf-employee">僱員供款 (MOP)</label>
-          <input type="number" id="mpf-employee" step="0.01" min="0" value="0" required>
+          <label for="mpf-account-balance">目前結餘 (MOP)</label>
+          <input type="number" id="mpf-account-balance" step="0.01" value="0" required>
         </div>
         <div class="form-row">
-          <label for="mpf-employer">僱主供款 (MOP)</label>
-          <input type="number" id="mpf-employer" step="0.01" min="0" value="0" required>
-        </div>
-        <div class="form-row">
-          <label for="mpf-note">備註</label>
-          <input type="text" id="mpf-note" placeholder="選填">
+          <label for="mpf-account-note">備註</label>
+          <input type="text" id="mpf-account-note" placeholder="選填">
         </div>
         <div class="form-actions">
-          <button type="button" id="btn-cancel-mpf" class="btn">取消</button>
+          <button type="button" id="btn-cancel-mpf-account" class="btn">取消</button>
           <button type="submit" class="btn primary">儲存</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- 基金配置 Modal -->
-  <div id="mpf-funds-modal-overlay" class="modal-overlay hidden">
+  <!-- 強積金月漲跌 Modal -->
+  <div id="mpf-change-modal-overlay" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
-        <h3>編輯基金配置</h3>
-        <button id="btn-close-mpf-funds" class="btn-icon">×</button>
+        <h3 id="mpf-change-modal-title">新增月漲跌</h3>
+        <button id="btn-close-mpf-change" class="btn-icon">×</button>
       </div>
-      <form id="mpf-funds-form">
-        <p class="rates-hint">設定各基金佔比（%），總和建議 100%。金額依總結餘自動估算。</p>
-        <div id="mpf-funds-inputs"></div>
-        <button type="button" id="btn-add-fund-row" class="btn" style="width:100%;margin-bottom:12px;">＋ 新增基金</button>
+      <form id="mpf-change-form">
+        <input type="hidden" id="mpf-change-edit-id">
+        <input type="hidden" id="mpf-change-account-id">
         <div class="form-row">
-          <label for="mpf-total-balance">強積金總結餘 (MOP)</label>
-          <input type="number" id="mpf-total-balance" step="0.01" min="0" value="0" required>
+          <label for="mpf-change-month">月份</label>
+          <input type="month" id="mpf-change-month" required>
+        </div>
+        <div class="form-row">
+          <label for="mpf-change-amount">漲跌金額 (MOP)</label>
+          <input type="number" id="mpf-change-amount" step="0.01" placeholder="正數為升、負數為跌" required>
+          <p class="field-hint">例如：+1500 或 -200</p>
+        </div>
+        <div class="form-row">
+          <label for="mpf-change-note">備註</label>
+          <input type="text" id="mpf-change-note" placeholder="選填（供款、投資回報等）">
         </div>
         <div class="form-actions">
-          <button type="button" id="btn-cancel-mpf-funds" class="btn">取消</button>
+          <button type="button" id="btn-cancel-mpf-change" class="btn">取消</button>
           <button type="submit" class="btn primary">儲存</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- 匯率 Modal -->
+  <!-- 匯率 -->
   <div id="rates-modal-overlay" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
