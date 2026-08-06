@@ -11,6 +11,7 @@
     <header>
       <h1>💰 記帳本</h1>
       <div class="header-actions">
+        <button type="button" id="btn-auth" class="btn" title="登入">👤</button>
         <button type="button" id="btn-export" class="btn" title="匯出">⬇</button>
         <button type="button" id="btn-rates" class="btn" title="匯率">💱</button>
         <button type="button" id="btn-add" class="btn primary page-only" data-page="monthly">＋ 新增</button>
@@ -113,8 +114,16 @@
     </div>
 
     <div id="page-mpf" class="page">
-      <div class="summary-cards single">
+      <div class="summary-cards mpf-summary">
         <div class="card balance"><div class="label">強積金總結餘</div><div class="value" id="mpf-total">HKD 0</div></div>
+        <div class="card balance">
+          <div class="label">
+            <button type="button" id="btn-mpf-prev-month" class="btn-icon mpf-month-btn">‹</button>
+            <span id="mpf-change-month-label">本月漲跌</span>
+            <button type="button" id="btn-mpf-next-month" class="btn-icon mpf-month-btn">›</button>
+          </div>
+          <div class="value" id="mpf-month-change">HKD 0</div>
+        </div>
       </div>
       <div id="mpf-accounts-list"></div>
       <div id="no-mpf-accounts" class="empty-hint">尚未新增強積金戶口</div>
@@ -127,7 +136,7 @@
         <div class="card balance"><div class="label">淨資產 (MOP)</div><div class="value" id="assets-net">MOP 0</div></div>
       </div>
       <section class="chart-section">
-        <h3>資產分布（依戶口 · MOP）</h3>
+        <h3>資產分布（強積金 / 銀行 / 其他 / 信用卡 · MOP）</h3>
         <div id="assetsAccountBars" class="bar-list"></div>
         <div id="no-assets-data" class="empty-hint" style="display:none">尚無資料</div>
       </section>
@@ -207,17 +216,35 @@
           <input type="date" id="date" required>
         </div>
         <div class="form-row">
-          <label>分類</label>
-          <input type="hidden" id="category" value="餐飲" required>
-          <div id="category-tiles" class="category-tiles"></div>
+          <label for="record-account">戶口（必選）</label>
+          <select id="record-account" required></select>
+        </div>
+        <div class="form-row">
+          <label for="category">分類</label>
+          <select id="category" required>
+            <option value="餐飲">🍔 餐飲</option>
+            <option value="交通">🚗 交通</option>
+            <option value="購物">🛍️ 購物</option>
+            <option value="娛樂">🎮 娛樂</option>
+            <option value="居住">🏠 居住</option>
+            <option value="母嬰">👶 母嬰</option>
+            <option value="保險費">🛡️ 保險費</option>
+            <option value="學貸">🎓 學貸</option>
+            <option value="生活費">💵 生活費</option>
+            <option value="薪資">💼 薪資</option>
+            <option value="電話費">📞 電話費</option>
+            <option value="電費">⚡ 電費</option>
+            <option value="淘寶">🛒 淘寶</option>
+            <option value="上網費">🌐 上網費</option>
+            <option value="醫療">🏥 醫療</option>
+            <option value="信用卡還款">💳 信用卡還款</option>
+            <option value="戶口調整">⚖️ 戶口調整</option>
+            <option value="其他">🏷️ 其他</option>
+          </select>
         </div>
         <div class="form-row hidden" id="custom-category-row">
           <label for="custom-category">自訂分類</label>
           <input type="text" id="custom-category" placeholder="輸入自訂分類">
-        </div>
-        <div class="form-row">
-          <label for="record-account">戶口（必選）</label>
-          <select id="record-account" required></select>
         </div>
         <div class="form-row hidden" id="repay-to-row">
           <label for="repay-to-account">還款至信用卡</label>
@@ -462,6 +489,9 @@
     </div>
   </div>
 
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
