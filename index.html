@@ -13,51 +13,161 @@
       <h1>💰 記帳本</h1>
       <div class="header-actions">
         <button id="btn-rates" class="btn" title="匯率設定">💱 匯率</button>
-        <button id="btn-add" class="btn primary">＋ 新增紀錄</button>
+        <button id="btn-add" class="btn primary page-only" data-page="monthly">＋ 新增紀錄</button>
+        <button id="btn-add-account" class="btn primary page-only hidden" data-page="accounts">＋ 新增戶口</button>
       </div>
     </header>
 
-    <!-- 月份導航 -->
-    <div class="month-nav">
-      <button id="btn-prev-month" class="btn-icon">‹</button>
-      <h2 id="current-month-label">2026年8月</h2>
-      <button id="btn-next-month" class="btn-icon">›</button>
+    <!-- ===== 頁面：每月記帳 ===== -->
+    <div id="page-monthly" class="page active">
+      <div class="month-nav">
+        <button id="btn-prev-month" class="btn-icon">‹</button>
+        <h2 id="current-month-label">2026年8月</h2>
+        <button id="btn-next-month" class="btn-icon">›</button>
+      </div>
+
+      <div class="summary-cards">
+        <div class="card income">
+          <div class="label">本月收入 (MOP)</div>
+          <div class="value" id="summary-income">MOP 0</div>
+        </div>
+        <div class="card expense">
+          <div class="label">本月支出 (MOP)</div>
+          <div class="value" id="summary-expense">MOP 0</div>
+        </div>
+        <div class="card balance">
+          <div class="label">結餘 (MOP)</div>
+          <div class="value" id="summary-balance">MOP 0</div>
+        </div>
+      </div>
+
+      <section class="chart-section">
+        <h3>本月支出分類 (MOP)</h3>
+        <div class="chart-container">
+          <canvas id="categoryChart"></canvas>
+        </div>
+        <div id="no-chart-data" class="empty-hint" style="display:none;">本月尚無支出資料</div>
+      </section>
+
+      <section class="records-section">
+        <h3>本月紀錄</h3>
+        <div id="records-list"></div>
+        <div id="no-records" class="empty-hint">本月尚無紀錄，點擊上方按鈕新增</div>
+      </section>
     </div>
 
-    <!-- 本月摘要 -->
-    <div class="summary-cards">
-      <div class="card income">
-        <div class="label">本月收入 (MOP)</div>
-        <div class="value" id="summary-income">MOP 0</div>
+    <!-- ===== 頁面：年度紀錄 ===== -->
+    <div id="page-yearly" class="page">
+      <div class="month-nav">
+        <button id="btn-prev-year" class="btn-icon">‹</button>
+        <h2 id="current-year-label">2026年</h2>
+        <button id="btn-next-year" class="btn-icon">›</button>
       </div>
-      <div class="card expense">
-        <div class="label">本月支出 (MOP)</div>
-        <div class="value" id="summary-expense">MOP 0</div>
+
+      <div class="summary-cards">
+        <div class="card income">
+          <div class="label">年度收入 (MOP)</div>
+          <div class="value" id="year-income">MOP 0</div>
+        </div>
+        <div class="card expense">
+          <div class="label">年度支出 (MOP)</div>
+          <div class="value" id="year-expense">MOP 0</div>
+        </div>
+        <div class="card balance">
+          <div class="label">年度結餘 (MOP)</div>
+          <div class="value" id="year-balance">MOP 0</div>
+        </div>
       </div>
-      <div class="card balance">
-        <div class="label">結餘 (MOP)</div>
-        <div class="value" id="summary-balance">MOP 0</div>
-      </div>
+
+      <section class="chart-section">
+        <h3>各月收支概況 (MOP)</h3>
+        <div class="chart-container chart-tall">
+          <canvas id="yearlyMonthChart"></canvas>
+        </div>
+      </section>
+
+      <section class="chart-section">
+        <h3>年度支出分類 (MOP)</h3>
+        <div class="chart-container">
+          <canvas id="yearlyCategoryChart"></canvas>
+        </div>
+        <div id="no-year-cat-data" class="empty-hint" style="display:none;">本年尚無支出資料</div>
+      </section>
+
+      <section class="records-section">
+        <h3>各月明細</h3>
+        <div id="yearly-months-list"></div>
+      </section>
     </div>
 
-    <!-- 圖表區 -->
-    <section class="chart-section">
-      <h3>本月支出分類 (MOP)</h3>
-      <div class="chart-container">
-        <canvas id="categoryChart"></canvas>
+    <!-- ===== 頁面：戶口管理 ===== -->
+    <div id="page-accounts" class="page">
+      <div class="summary-cards single">
+        <div class="card balance">
+          <div class="label">戶口總額 (MOP)</div>
+          <div class="value" id="accounts-total">MOP 0</div>
+        </div>
       </div>
-      <div id="no-chart-data" class="empty-hint" style="display:none;">本月尚無支出資料</div>
-    </section>
 
-    <!-- 紀錄列表 -->
-    <section class="records-section">
-      <h3>本月紀錄</h3>
-      <div id="records-list"></div>
-      <div id="no-records" class="empty-hint">本月尚無紀錄，點擊上方按鈕新增</div>
-    </section>
+      <section class="records-section">
+        <h3>我的戶口</h3>
+        <div id="accounts-list"></div>
+        <div id="no-accounts" class="empty-hint">尚未新增任何戶口</div>
+      </section>
+    </div>
+
+    <!-- ===== 頁面：總資產 ===== -->
+    <div id="page-assets" class="page">
+      <div class="summary-cards">
+        <div class="card balance full">
+          <div class="label">總資產 (MOP)</div>
+          <div class="value" id="assets-total">MOP 0</div>
+        </div>
+      </div>
+
+      <section class="chart-section">
+        <h3>資產分布（依戶口）</h3>
+        <div class="chart-container">
+          <canvas id="assetsAccountChart"></canvas>
+        </div>
+        <div id="no-assets-data" class="empty-hint" style="display:none;">尚無戶口資料</div>
+      </section>
+
+      <section class="chart-section">
+        <h3>資產分布（依貨幣）</h3>
+        <div class="chart-container chart-medium">
+          <canvas id="assetsCurrencyChart"></canvas>
+        </div>
+      </section>
+
+      <section class="records-section">
+        <h3>資產明細</h3>
+        <div id="assets-detail-list"></div>
+      </section>
+    </div>
+
+    <!-- 底部導航 -->
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-page="monthly">
+        <span class="nav-icon">📝</span>
+        <span>記帳</span>
+      </button>
+      <button class="nav-btn" data-page="yearly">
+        <span class="nav-icon">📅</span>
+        <span>年度</span>
+      </button>
+      <button class="nav-btn" data-page="accounts">
+        <span class="nav-icon">🏦</span>
+        <span>戶口</span>
+      </button>
+      <button class="nav-btn" data-page="assets">
+        <span class="nav-icon">💎</span>
+        <span>資產</span>
+      </button>
+    </nav>
   </div>
 
-  <!-- 新增 / 編輯 彈出視窗 -->
+  <!-- 新增 / 編輯 紀錄 彈出視窗 -->
   <div id="modal-overlay" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
@@ -132,12 +242,73 @@
         </div>
 
         <div class="form-row">
+          <label for="record-account">關聯戶口（選填）</label>
+          <select id="record-account">
+            <option value="">不關聯</option>
+          </select>
+        </div>
+
+        <div class="form-row">
           <label for="note">備註</label>
           <input type="text" id="note" placeholder="選填">
         </div>
 
         <div class="form-actions">
           <button type="button" id="btn-cancel" class="btn">取消</button>
+          <button type="submit" class="btn primary">儲存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 新增 / 編輯 戶口 彈出視窗 -->
+  <div id="account-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="account-modal-title">新增戶口</h3>
+        <button id="btn-close-account-modal" class="btn-icon">×</button>
+      </div>
+      <form id="account-form">
+        <input type="hidden" id="account-edit-id">
+
+        <div class="form-row">
+          <label for="account-name">戶口名稱</label>
+          <input type="text" id="account-name" placeholder="例如：中銀澳門" required>
+        </div>
+
+        <div class="form-row">
+          <label for="account-type">類型</label>
+          <select id="account-type" required>
+            <option value="現金">💵 現金</option>
+            <option value="銀行">🏦 銀行</option>
+            <option value="信用卡">💳 信用卡</option>
+            <option value="電子錢包">📱 電子錢包</option>
+            <option value="投資">📈 投資</option>
+            <option value="其他">🏷️ 其他</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label for="account-currency">貨幣</label>
+          <select id="account-currency" required>
+            <option value="MOP">MOP 澳門幣</option>
+            <option value="HKD">HKD 港幣</option>
+            <option value="CNY">CNY 人民幣</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label for="account-balance">目前餘額</label>
+          <input type="number" id="account-balance" step="0.01" placeholder="0.00" required>
+        </div>
+
+        <div class="form-row">
+          <label for="account-note">備註</label>
+          <input type="text" id="account-note" placeholder="選填">
+        </div>
+
+        <div class="form-actions">
+          <button type="button" id="btn-cancel-account" class="btn">取消</button>
           <button type="submit" class="btn primary">儲存</button>
         </div>
       </form>
