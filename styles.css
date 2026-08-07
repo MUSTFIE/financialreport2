@@ -745,3 +745,49 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* 記帳摘要：手機 2 格、桌面 4 格 */
+.summary-cards.summary-monthly {
+  grid-template-columns: repeat(2, 1fr);
+}
+@media (min-width: 768px) {
+  .summary-cards.summary-monthly {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* 確保記帳頁上下排列（不被 dual-col 影響） */
+.stack-col {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px;
+}
+
+/* 各月明細：單行列表 */
+.month-bar.month-bar-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.month-bar.month-bar-list .month-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  min-width: 5.5em;
+}
+.month-bar.month-bar-list .month-stats-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.month-bar.month-bar-list .inc { color: var(--income); }
+.month-bar.month-bar-list .exp { color: var(--expense); }
+.month-bar.month-bar-list .bal.positive { color: var(--income); }
+.month-bar.month-bar-list .bal.negative { color: var(--expense); }
