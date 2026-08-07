@@ -29,22 +29,25 @@
         <h2 id="current-month-label">2026年8月</h2>
         <button type="button" id="btn-next-month" class="btn-icon">›</button>
       </div>
-      <div class="summary-cards summary-stackable">
+      <div class="summary-cards summary-monthly">
         <div class="card income">
           <div class="label">本月收入</div>
           <div class="value" id="summary-income">MOP 0</div>
         </div>
-        <div class="card expense expense-split">
-          <div class="label">本月支出</div>
-          <div class="split-line"><span>消費支出</span><strong id="summary-expense">MOP 0</strong></div>
-          <div class="split-line"><span>實際支出</span><strong id="summary-expense-all">MOP 0</strong></div>
+        <div class="card expense">
+          <div class="label">消費支出</div>
+          <div class="value" id="summary-expense">MOP 0</div>
         </div>
-        <div class="card balance summary-bottom">
+        <div class="card expense">
+          <div class="label">實際支出</div>
+          <div class="value" id="summary-expense-all">MOP 0</div>
+        </div>
+        <div class="card balance">
           <div class="label">結餘</div>
           <div class="value" id="summary-balance">MOP 0</div>
         </div>
       </div>
-      <div class="dual-col">
+      <div class="stack-col">
         <section class="chart-section">
           <h3>本月消費支出分類</h3>
           <div id="categoryBars" class="bar-list"></div>
