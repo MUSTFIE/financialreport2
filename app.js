@@ -142,6 +142,7 @@ let currentType = 'expense';
 let currentPage = 'monthly';
 let filters = { type: '', category: '', account: '' };
 let expandedAccountId = null;
+let ledgerFilterMonth = ''; // '' = 全部, 'YYYY-MM'
 let mpfViewYear = new Date().getFullYear();
 let mpfViewMonth = new Date().getMonth(); // 0-11
 
@@ -509,7 +510,7 @@ function renderMonthRecords() {
     const wallet = r.viaWalletId ? accounts.find(a => a.id === r.viaWalletId) : null;
     const sign = isTransfer(r) ? '⇄' : (r.type === 'income' ? '+' : '−');
     const amtText = isTransfer(r)
-      ? `${money(r.currency, r.amount)}${r.toCurrency && r.toCurrency !== r.currency ? ' → ' + money(r.toCurrency, r.toAmount) : ''}`
+      ? `−${money(r.currency, r.amount)} → +${money(r.toCurrency || r.currency, r.toAmount ?? r.amount)}`
       : `${sign} ${money(r.currency, r.amount)}`;
     const metaExtra = isTransfer(r)
       ? ` · ${acc ? escapeHtml(acc.name) : ''} → ${toAcc ? escapeHtml(toAcc.name) : ''}`
@@ -522,7 +523,7 @@ function renderMonthRecords() {
         <div class="record-meta">${r.date}${metaExtra}${r.note ? ' · ' + escapeHtml(r.note) : ''}</div>
       </div>
       <div class="record-right">
-        <div class="record-amount ${isTransfer(r) ? '' : r.type}">${amtText}</div>
+        <div class="record-amount">${amtText}</div>
         <div class="record-actions">
           ${isTransfer(r) ? '' : `<button type="button" class="edit" data-id="${r.id}">編輯</button>`}
           <button type="button" class="delete" data-id="${r.id}">刪除</button>
@@ -590,15 +591,45 @@ function netAssetAccounts() {
   return accounts.filter(a => a.type !== '電子錢包' && a.type !== '信用卡');
 }
 
-function getAccountLedger(accountId) {
+function getAccountLedger(accountId, monthKey = '') {
   return records
-    .filter(r =>
-      r.accountId === accountId ||
-      r.displayAccountId === accountId ||
-      r.repayToId === accountId ||
-      r.toAccountId === accountId
-    )
+    .filter(r => {
+      const hit =
+        r.accountId === accountId ||
+        r.displayAccountId === accountId ||
+        r.repayToId === accountId ||
+        r.toAccountId === accountId;
+      if (!hit) return false;
+      if (monthKey && String(r.date || '').slice(0, 7) !== monthKey) return false;
+      return true;
+    })
     .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+function ledgerMonthOptions(accountId, isWallet) {
+  const all = isWallet
+    ? records.filter(r => r.viaWalletId === accountId)
+    : records.filter(r =>
+        r.accountId === accountId ||
+        r.displayAccountId === accountId ||
+        r.repayToId === accountId ||
+        r.toAccountId === accountId
+      );
+  const months = [...new Set(all.map(r => String(r.date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
+  return months;
+}
+
+/** 在指定戶口視角下，轉帳／收支的正負與顯示金額 */
+function ledgerAmountView(r, accountId) {
+  if (isTransfer(r)) {
+    if (r.toAccountId === accountId) {
+      return { sign: '+', cls: 'income', amount: r.toAmount ?? r.amount, currency: r.toCurrency || r.currency };
+    }
+    // 轉出
+    return { sign: '−', cls: 'expense', amount: r.amount, currency: r.currency };
+  }
+  if (r.type === 'income') return { sign: '+', cls: 'income', amount: r.amount, currency: r.currency };
+  return { sign: '−', cls: 'expense', amount: r.amount, currency: r.currency };
 }
 
 function renderAccounts() {
@@ -635,22 +666,48 @@ function renderAccounts() {
       const isWallet = a.type === '電子錢包';
       const linked = isWallet && a.linkedBankId ? accounts.find(x => x.id === a.linkedBankId) : null;
       const expanded = expandedAccountId === a.id;
-      // 電子錢包流水掛在銀行；點電子錢包時顯示「經由此錢包」的紀錄
-      const ledger = expanded
-        ? (isWallet
-            ? records.filter(r => r.viaWalletId === a.id).sort((x, y) => new Date(y.date) - new Date(x.date))
-            : getAccountLedger(a.id))
-        : [];
+      let ledger = [];
+      let monthOpts = [];
+      if (expanded) {
+        monthOpts = ledgerMonthOptions(a.id, isWallet);
+        if (isWallet) {
+          ledger = records
+            .filter(r => {
+              if (r.viaWalletId !== a.id) return false;
+              if (ledgerFilterMonth && String(r.date || '').slice(0, 7) !== ledgerFilterMonth) return false;
+              return true;
+            })
+            .sort((x, y) => new Date(y.date) - new Date(x.date));
+        } else {
+          ledger = getAccountLedger(a.id, ledgerFilterMonth);
+        }
+      }
       let ledgerHtml = '';
       if (expanded) {
-        if (!ledger.length) ledgerHtml = '<div class="ledger-empty">尚無流水紀錄</div>';
-        else {
-          ledgerHtml = ledger.slice(0, 50).map(r => {
-            const sign = r.type === 'income' ? '+' : '−';
+        const monthSelect = `<div class="ledger-filter">
+          <label>月份</label>
+          <select class="ledger-month-select" data-acc="${a.id}">
+            <option value="">全部</option>
+            ${monthOpts.map(m => `<option value="${m}" ${m === ledgerFilterMonth ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+        </div>`;
+        if (!ledger.length) {
+          ledgerHtml = monthSelect + '<div class="ledger-empty">此條件下尚無流水紀錄</div>';
+        } else {
+          ledgerHtml = monthSelect + ledger.slice(0, 80).map(r => {
+            const view = ledgerAmountView(r, a.id);
             const via = r.viaWalletId ? accounts.find(w => w.id === r.viaWalletId) : null;
+            const other = isTransfer(r)
+              ? (r.toAccountId === a.id
+                  ? accounts.find(x => x.id === r.accountId)
+                  : accounts.find(x => x.id === r.toAccountId))
+              : null;
+            const extra = isTransfer(r) && other
+              ? ` · ${r.toAccountId === a.id ? '自' : '至'} ${escapeHtml(other.name)}`
+              : (via && !isWallet ? ' · ' + escapeHtml(via.name) : '');
             return `<div class="ledger-item">
-              <span>${r.date} · ${escapeHtml(r.category)}${via && !isWallet ? ' · ' + escapeHtml(via.name) : ''}${r.note ? ' · ' + escapeHtml(r.note) : ''}</span>
-              <span class="record-amount ${r.type}">${sign}${money(r.currency, r.amount)}</span>
+              <span>${r.date} · ${escapeHtml(r.category)}${extra}${r.note ? ' · ' + escapeHtml(r.note) : ''}</span>
+              <span class="record-amount ${view.cls}">${view.sign}${money(view.currency, view.amount)}</span>
             </div>`;
           }).join('');
         }
@@ -689,9 +746,24 @@ function renderAccounts() {
 
   container.querySelectorAll('.account-item').forEach(item => {
     item.addEventListener('click', e => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button') || e.target.closest('select')) return;
       const id = item.dataset.id;
-      expandedAccountId = expandedAccountId === id ? null : id;
+      if (expandedAccountId === id) {
+        expandedAccountId = null;
+        ledgerFilterMonth = '';
+      } else {
+        expandedAccountId = id;
+        ledgerFilterMonth = '';
+      }
+      renderAccounts();
+    });
+  });
+  container.querySelectorAll('.ledger-month-select').forEach(sel => {
+    sel.addEventListener('click', e => e.stopPropagation());
+    sel.addEventListener('change', e => {
+      e.stopPropagation();
+      ledgerFilterMonth = sel.value;
+      expandedAccountId = sel.dataset.acc;
       renderAccounts();
     });
   });
@@ -712,11 +784,13 @@ function renderAccounts() {
 function populateAccountSelect(selectedId = '') {
   const sel = $('#record-account');
   sel.innerHTML = '<option value="">請選擇戶口</option>';
-  ['現金','銀行','信用卡','電子錢包','投資','其他'].forEach(type => {
+  // 排序：電子支付 → 信用卡 → 銀行 → 現金（不顯示投資／其他）
+  ['電子錢包', '信用卡', '銀行', '現金'].forEach(type => {
     const group = accounts.filter(a => a.type === type);
     if (!group.length) return;
     const og = document.createElement('optgroup');
-    og.label = `${ACCOUNT_TYPE_ICONS[type] || ''} ${type}`;
+    const labelMap = { '電子錢包': '電子支付', '信用卡': '信用卡', '銀行': '銀行戶口', '現金': '現金' };
+    og.label = `${ACCOUNT_TYPE_ICONS[type] || ''} ${labelMap[type] || type}`;
     group.forEach(a => {
       const opt = document.createElement('option');
       opt.value = a.id; opt.textContent = a.name;
@@ -1208,31 +1282,30 @@ function handleLiabilitySubmit(e) {
 }
 
 function renderAssets() {
-  let bankMop = 0, otherMop = 0, creditDebt = 0;
+  let bankMop = 0, otherMop = 0;
   accounts.forEach(a => {
-    if (a.type === '電子錢包') return;
+    if (a.type === '電子錢包' || a.type === '信用卡') return; // 信用卡不計入資產頁
     const mop = balancesToMOP(a.balances);
-    if (a.type === '信用卡') creditDebt += mop;
-    else if (a.type === '銀行') bankMop += mop;
+    if (a.type === '銀行') bankMop += mop;
     else otherMop += mop; // 現金、投資、其他
   });
   let mpfTotal = 0;
   (mpfData.accounts || []).forEach(a => { mpfTotal += toMOP(a.balance || 0, 'HKD'); });
   const gross = bankMop + otherMop + mpfTotal;
+  // 扣減合計：僅手動扣減項，不含信用卡
   let otherLiab = 0;
   liabilities.forEach(l => { otherLiab += balancesToMOP(l.balances); });
-  const totalLiab = creditDebt + otherLiab;
+  const totalLiab = otherLiab;
 
   $('#assets-gross').textContent = money('MOP', gross);
   $('#assets-liability').textContent = money('MOP', totalLiab);
   $('#assets-net').textContent = money('MOP', gross - totalLiab);
 
-  // 分布：強積金 / 銀行 / 其他（現金+投資+其他）/ 信用卡欠款
+  // 分布：強積金 / 銀行 / 其他（不含信用卡）
   const chartItems = [
     { label: '🏛️ 強積金', value: mpfTotal },
     { label: '🏦 銀行戶口', value: bankMop },
-    { label: '📦 其他資產', value: otherMop },
-    { label: '💳 信用卡欠款', value: creditDebt }
+    { label: '📦 其他資產', value: otherMop }
   ].filter(i => i.value > 0);
 
   if (!chartItems.length) {
@@ -1298,24 +1371,11 @@ function renderAssets() {
 
   const liabEl = $('#liabilities-list');
   liabEl.innerHTML = '';
-  const ccList = accounts.filter(a => a.type === '信用卡' && balancesToMOP(a.balances) > 0);
-  if (!liabilities.length && !ccList.length) {
+  // 扣減項僅手動項目，不含信用卡
+  if (!liabilities.length) {
     $('#no-liabilities').style.display = 'block';
   } else {
     $('#no-liabilities').style.display = 'none';
-    ccList.forEach(a => {
-      const b = a.balances || {};
-      const item = document.createElement('div');
-      item.className = 'account-item'; item.style.cursor = 'default';
-      item.innerHTML = `<div class="account-item-header"><div class="account-name">💳 ${escapeHtml(a.name)}</div>
-        <div style="font-weight:700;color:var(--expense)">${money('MOP', balancesToMOP(b))}</div></div>
-        <div class="currency-chips">
-          <div class="currency-chip"><span class="cc-code">MOP</span><span class="cc-val">${formatMoney(b.MOP||0)}</span></div>
-          <div class="currency-chip"><span class="cc-code">HKD</span><span class="cc-val">${formatMoney(b.HKD||0)}</span></div>
-          <div class="currency-chip"><span class="cc-code">CNY</span><span class="cc-val">${formatMoney(b.CNY||0)}</span></div>
-        </div>`;
-      liabEl.appendChild(item);
-    });
     liabilities.forEach(l => {
       const b = l.balances || {};
       const item = document.createElement('div');
@@ -1326,11 +1386,7 @@ function renderAssets() {
           <button type="button" class="edit" data-id="${l.id}">編輯</button>
           <button type="button" class="delete" data-id="${l.id}">刪除</button>
         </div></div>
-        <div class="currency-chips">
-          <div class="currency-chip"><span class="cc-code">MOP</span><span class="cc-val">${formatMoney(b.MOP||0)}</span></div>
-          <div class="currency-chip"><span class="cc-code">HKD</span><span class="cc-val">${formatMoney(b.HKD||0)}</span></div>
-          <div class="currency-chip"><span class="cc-code">CNY</span><span class="cc-val">${formatMoney(b.CNY||0)}</span></div>
-        </div>
+        ${currencyChipsHtml(b)}
         <div class="account-meta" style="margin-top:6px">折合 ${money('MOP', balancesToMOP(b))}</div>`;
       liabEl.appendChild(item);
     });
