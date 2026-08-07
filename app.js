@@ -145,6 +145,8 @@ let currentPage = 'monthly';
 let filters = { type: '', category: '', account: '' };
 let expandedAccountId = null;
 let ledgerFilterMonth = ''; // '' = 全部, 'YYYY-MM'
+let expandedMpfId = null;
+let expandedAssetGroup = null; // e.g. '銀行'
 let mpfViewYear = new Date().getFullYear();
 let mpfViewMonth = new Date().getMonth(); // 0-11
 
@@ -737,7 +739,6 @@ function renderAccounts() {
         <div class="account-item-header">
           <div>
             <div class="account-name">${escapeHtml(a.name)}</div>
-            ${isDebt ? '<div class="account-meta" style="color:var(--expense)">正數＝欠款</div>' : ''}
             ${rateInfo}
             ${a.note ? `<div class="account-meta">${escapeHtml(a.note)}</div>` : ''}
           </div>
@@ -797,9 +798,11 @@ function populateAccountSelect(selectedId = '') {
   const sel = $('#record-account');
   sel.innerHTML = '<option value="">請選擇戶口</option>';
   // 排序：電子支付 → 信用卡 → 銀行 → 現金（不顯示投資／其他）
+  let firstWalletId = '';
   ['電子錢包', '信用卡', '銀行', '現金'].forEach(type => {
     const group = accounts.filter(a => a.type === type);
     if (!group.length) return;
+    if (type === '電子錢包' && !firstWalletId) firstWalletId = group[0].id;
     const og = document.createElement('optgroup');
     const labelMap = { '電子錢包': '電子支付', '信用卡': '信用卡', '銀行': '銀行戶口', '現金': '現金' };
     og.label = `${ACCOUNT_TYPE_ICONS[type] || ''} ${labelMap[type] || type}`;
@@ -811,6 +814,8 @@ function populateAccountSelect(selectedId = '') {
     });
     sel.appendChild(og);
   });
+  // 新增時未指定：預設第一個電子支付
+  if (!selectedId && firstWalletId) sel.value = firstWalletId;
 }
 
 function populateRepayToSelect(selectedId = '') {
@@ -1345,13 +1350,14 @@ function renderAssets() {
 
   const detailEl = $('#assets-detail-list');
   detailEl.innerHTML = '';
-  // 依分類列出所有戶口（排除信用卡、電子錢包）+ 強積金
+  // 依分類列出；點類型才展開戶口（排除信用卡、電子錢包）
   const detailGroups = [
-    { title: '🏦 銀行', list: accounts.filter(a => a.type === '銀行') },
-    { title: '💵 現金', list: accounts.filter(a => a.type === '現金') },
-    { title: '📈 投資', list: accounts.filter(a => a.type === '投資') },
-    { title: '🏷️ 其他', list: accounts.filter(a => a.type === '其他') },
+    { key: '銀行', title: '🏦 銀行', list: accounts.filter(a => a.type === '銀行') },
+    { key: '現金', title: '💵 現金', list: accounts.filter(a => a.type === '現金') },
+    { key: '投資', title: '📈 投資', list: accounts.filter(a => a.type === '投資') },
+    { key: '其他', title: '🏷️ 其他', list: accounts.filter(a => a.type === '其他') },
     {
+      key: '強積金',
       title: '🏛️ 強積金',
       list: (mpfData.accounts || []).map(m => ({
         id: m.id, name: m.name, type: '強積金',
@@ -1360,28 +1366,47 @@ function renderAssets() {
       }))
     }
   ];
+  let anyGroup = false;
   detailGroups.forEach(g => {
     if (!g.list.length) return;
-    const title = document.createElement('div');
-    title.className = 'type-group-title';
-    title.style.marginTop = '8px';
-    title.textContent = g.title;
-    detailEl.appendChild(title);
-    g.list.forEach(a => {
-      const mop = a.isMpf ? toMOP(a.balances.HKD, 'HKD') : balancesToMOP(a.balances);
-      const item = document.createElement('div');
-      item.className = 'account-item';
-      item.style.cursor = 'default';
-      item.innerHTML = `<div class="account-item-header">
-        <div class="account-name">${escapeHtml(a.name)}</div>
-        <div style="text-align:right;font-weight:700;color:var(--primary)">${money('MOP', mop)}</div>
+    anyGroup = true;
+    const groupTotal = g.list.reduce((s, a) => s + (a.isMpf ? toMOP(a.balances.HKD, 'HKD') : balancesToMOP(a.balances)), 0);
+    const open = expandedAssetGroup === g.key;
+    const wrap = document.createElement('div');
+    wrap.className = 'asset-group' + (open ? ' open' : '');
+    wrap.innerHTML = `
+      <div class="asset-group-header" data-key="${g.key}">
+        <span class="asset-group-title">${g.title} <span class="account-meta">（${g.list.length}）</span></span>
+        <span class="asset-group-total">${money('MOP', groupTotal)} ${open ? '▾' : '▸'}</span>
       </div>
-      ${currencyChipsHtml(a.balances)}`;
-      detailEl.appendChild(item);
-    });
+      <div class="asset-group-body" style="display:${open ? 'block' : 'none'}"></div>`;
+    const body = wrap.querySelector('.asset-group-body');
+    if (open) {
+      g.list.forEach(a => {
+        const mop = a.isMpf ? toMOP(a.balances.HKD, 'HKD') : balancesToMOP(a.balances);
+        const item = document.createElement('div');
+        item.className = 'account-item';
+        item.style.cursor = 'default';
+        item.innerHTML = `<div class="account-item-header">
+          <div class="account-name">${escapeHtml(a.name)}</div>
+          <div style="text-align:right;font-weight:700;color:var(--primary)">${money('MOP', mop)}</div>
+        </div>
+        ${currencyChipsHtml(a.balances)}`;
+        body.appendChild(item);
+      });
+    }
+    detailEl.appendChild(wrap);
   });
-  if (!detailEl.children.length) {
+  if (!anyGroup) {
     detailEl.innerHTML = '<div class="empty-hint">尚無資產戶口</div>';
+  } else {
+    detailEl.querySelectorAll('.asset-group-header').forEach(h => {
+      h.addEventListener('click', () => {
+        const key = h.dataset.key;
+        expandedAssetGroup = expandedAssetGroup === key ? null : key;
+        renderAssets();
+      });
+    });
   }
 
   const liabEl = $('#liabilities-list');
@@ -1454,32 +1479,36 @@ function renderMpf() {
 
   mpfData.accounts.forEach(acc => {
     const card = document.createElement('div');
-    card.className = 'mpf-card';
+    const expanded = expandedMpfId === acc.id;
+    card.className = 'mpf-card' + (expanded ? ' expanded' : '');
+    card.dataset.id = acc.id;
     const snaps = [...(acc.snapshots || [])].sort((a, b) => b.month.localeCompare(a.month));
     let listHtml = '';
-    if (!snaps.length) listHtml = '<div class="ledger-empty">尚無結餘紀錄</div>';
-    else {
-      listHtml = snaps.map((s, i) => {
-        const prev = snaps[i + 1];
-        let changeHtml = prev
-          ? (() => {
-              const diff = Number(s.balance) - Number(prev.balance);
-              const up = diff >= 0;
-              return `<span class="${up ? 'mpf-change-up' : 'mpf-change-down'}">${up ? '+' : ''}${money('HKD', diff)}</span>`;
-            })()
-          : '<span class="account-meta">—</span>';
-        return `<div class="mpf-change-item">
-          <span>${s.month} · ${money('HKD', s.balance)}${s.note ? ' · ' + escapeHtml(s.note) : ''}</span>
-          <span>${changeHtml}
-            <button type="button" class="edit-snap" data-acc="${acc.id}" data-id="${s.id}" style="margin-left:6px;font-size:0.7rem;padding:2px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;cursor:pointer">編輯</button>
-            <button type="button" class="del-snap" data-acc="${acc.id}" data-id="${s.id}" style="font-size:0.7rem;padding:2px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;cursor:pointer;color:#dc2626">刪</button>
-          </span></div>`;
-      }).join('');
+    if (expanded) {
+      if (!snaps.length) listHtml = '<div class="ledger-empty">尚無結餘紀錄</div>';
+      else {
+        listHtml = snaps.map((s, i) => {
+          const prev = snaps[i + 1];
+          let changeHtml = prev
+            ? (() => {
+                const diff = Number(s.balance) - Number(prev.balance);
+                const up = diff >= 0;
+                return `<span class="${up ? 'mpf-change-up' : 'mpf-change-down'}">${up ? '+' : ''}${money('HKD', diff)}</span>`;
+              })()
+            : '<span class="account-meta">—</span>';
+          return `<div class="mpf-change-item">
+            <span>${s.month} · ${money('HKD', s.balance)}${s.note ? ' · ' + escapeHtml(s.note) : ''}</span>
+            <span>${changeHtml}
+              <button type="button" class="edit-snap" data-acc="${acc.id}" data-id="${s.id}" style="margin-left:6px;font-size:0.7rem;padding:2px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;cursor:pointer">編輯</button>
+              <button type="button" class="del-snap" data-acc="${acc.id}" data-id="${s.id}" style="font-size:0.7rem;padding:2px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;cursor:pointer;color:#dc2626">刪</button>
+            </span></div>`;
+        }).join('');
+      }
     }
     card.innerHTML = `
-      <div class="mpf-card-header">
+      <div class="mpf-card-header mpf-card-toggle">
         <div>
-          <div class="mpf-card-name">${escapeHtml(acc.name)}</div>
+          <div class="mpf-card-name">${escapeHtml(acc.name)} <span class="account-meta">${expanded ? '▾' : '▸'}</span></div>
           ${acc.note ? `<div class="account-meta">${escapeHtml(acc.note)}</div>` : ''}
         </div>
         <div class="mpf-card-balance">${money('HKD', acc.balance)}</div>
@@ -1489,21 +1518,32 @@ function renderMpf() {
         <button type="button" class="edit-acc" data-id="${acc.id}">編輯</button>
         <button type="button" class="delete del-acc" data-id="${acc.id}">刪除</button>
       </div>
-      <div class="mpf-changes">
+      ${expanded ? `<div class="mpf-changes">
         <div class="mpf-changes-title">每月結餘（自動計算漲跌）</div>
         ${listHtml}
-      </div>`;
+      </div>` : ''}`;
     el.appendChild(card);
   });
 
-  el.querySelectorAll('.add-snap').forEach(btn => btn.addEventListener('click', () => openAddMpfSnapModal(btn.dataset.id)));
-  el.querySelectorAll('.edit-acc').forEach(btn => btn.addEventListener('click', () => openEditMpfAccountModal(btn.dataset.id)));
-  el.querySelectorAll('.del-acc').forEach(btn => btn.addEventListener('click', () => {
+  el.querySelectorAll('.mpf-card-toggle').forEach(hdr => {
+    hdr.addEventListener('click', e => {
+      if (e.target.closest('button')) return;
+      const card = hdr.closest('.mpf-card');
+      const id = card?.dataset.id;
+      expandedMpfId = expandedMpfId === id ? null : id;
+      renderMpf();
+    });
+  });
+  el.querySelectorAll('.add-snap').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openAddMpfSnapModal(btn.dataset.id); }));
+  el.querySelectorAll('.edit-acc').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openEditMpfAccountModal(btn.dataset.id); }));
+  el.querySelectorAll('.del-acc').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
     mpfData.accounts = mpfData.accounts.filter(a => a.id !== btn.dataset.id);
     saveJSON(MPF_KEY, mpfData); renderMpf();
   }));
-  el.querySelectorAll('.edit-snap').forEach(btn => btn.addEventListener('click', () => openEditMpfSnapModal(btn.dataset.acc, btn.dataset.id)));
-  el.querySelectorAll('.del-snap').forEach(btn => btn.addEventListener('click', () => {
+  el.querySelectorAll('.edit-snap').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openEditMpfSnapModal(btn.dataset.acc, btn.dataset.id); }));
+  el.querySelectorAll('.del-snap').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
     const acc = mpfData.accounts.find(a => a.id === btn.dataset.acc);
     if (!acc) return;
     acc.snapshots = (acc.snapshots || []).filter(s => s.id !== btn.dataset.id);
