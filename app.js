@@ -113,6 +113,8 @@ function currencyChipsHtml(balances) {
 }
 
 let records = loadJSON(STORAGE_KEY, []);
+// 去掉舊資料中的 undefined（JSON 再 parse 會自動去掉）
+try { records = JSON.parse(JSON.stringify(records)); } catch (_) {}
 let accounts = loadJSON(ACCOUNTS_KEY, []);
 accounts = accounts.map(a => {
   if (a.balances) {
@@ -239,14 +241,24 @@ function persistLocal() {
   saveRatesObj(rates);
 }
 
+/** Firebase RTDB 不接受 undefined，用 JSON 去掉後再寫入 */
+function stripUndefined(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
 async function pushAllToCloud() {
   if (!firebaseReady || !currentUser) return;
   syncing = true;
   try {
-    await db.ref('users/' + currentUser.uid).set({
-      records, accounts, liabilities, mpfData, rates,
+    const payload = stripUndefined({
+      records,
+      accounts,
+      liabilities,
+      mpfData,
+      rates,
       updatedAt: Date.now()
     });
+    await db.ref('users/' + currentUser.uid).set(payload);
   } catch (err) {
     console.error(err);
     alert('同步到雲端失敗：' + err.message);
@@ -725,7 +737,7 @@ function renderAccounts() {
         <div class="account-item-header">
           <div>
             <div class="account-name">${escapeHtml(a.name)}</div>
-            ${isDebt ? '<div class="account-meta" style="color:var(--expense)"></div>' : ''}
+            ${isDebt ? '<div class="account-meta" style="color:var(--expense)">正數＝欠款</div>' : ''}
             ${rateInfo}
             ${a.note ? `<div class="account-meta">${escapeHtml(a.note)}</div>` : ''}
           </div>
@@ -987,17 +999,20 @@ function handleRecordSubmit(e) {
     date: $('#date').value,
     category,
     accountId,
-    displayAccountId,
-    viaWalletId,
-    repayToId: repayToId || undefined,
     note: $('#note').value.trim(),
     createdAt: old?.createdAt || new Date().toISOString()
   };
+  // 僅在有值時寫入，避免 Firebase 拒絕 undefined
+  if (displayAccountId) record.displayAccountId = displayAccountId;
+  if (viaWalletId) record.viaWalletId = viaWalletId;
+  if (repayToId) record.repayToId = repayToId;
 
   if (old) reverseRecordEffect(old);
   applyRecordEffect(record);
   const idx = records.findIndex(r => r.id === record.id);
   if (idx >= 0) records[idx] = record; else records.push(record);
+  // 清理本機既有紀錄中的 undefined 欄位
+  records = stripUndefined(records);
   saveJSON(STORAGE_KEY, records);
   closeModal();
   if (currentPage === 'monthly') renderMonthly();
