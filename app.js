@@ -22,13 +22,13 @@ const BAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6',
 
 // ========== Firebase 設定（請填入你的專案） ==========
 const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyAr_4P8sHYFDH2ZIW-04kvN8baHaePxxQ8',
-  authDomain: 'financial-record-e41e9.firebaseapp.com',
-  databaseURL: 'https://financial-record-e41e9-default-rtdb.asia-southeast1.firebasedatabase.app',
-  projectId: 'financial-record-e41e9',
-  storageBucket: 'financial-record-e41e9.firebasestorage.app',
-  messagingSenderId: '1022975525620',
-  appId: '1:1022975525620:web:c918f787d51aae670214a1'
+  apiKey: '',
+  authDomain: '',
+  databaseURL: '',
+  projectId: '',
+  storageBucket: '',
+  messagingSenderId: '',
+  appId: ''
 };
 let firebaseReady = false;
 let auth = null;
@@ -81,20 +81,55 @@ function balancesToMOP(b) {
 function isRepayment(r) {
   return r.category === '信用卡還款' || !!r.repayToId;
 }
+function isTransfer(r) {
+  return r && (r.type === 'transfer' || r.category === '內部轉帳');
+}
 /** 信用卡消費（非還款）：記在信用卡戶口的支出 */
 function isCreditCardPurchase(r) {
-  if (!r || r.type !== 'expense' || isRepayment(r)) return false;
+  if (!r || r.type !== 'expense' || isRepayment(r) || isTransfer(r)) return false;
   const acc = accounts.find(a => a.id === r.accountId);
   return !!(acc && acc.type === '信用卡');
+}
+/** 各幣互轉（經 MOP） */
+function convertAmount(amount, fromCur, toCur) {
+  const mop = toMOP(amount, fromCur);
+  if (toCur === 'MOP') return mop;
+  if (toCur === 'HKD') return rates.HKD ? mop / rates.HKD : mop;
+  if (toCur === 'CNY') return rates.CNY ? mop / rates.CNY : mop;
+  return mop;
+}
+function currencyChipsHtml(balances) {
+  const b = balances || {};
+  const parts = [];
+  ['MOP', 'HKD', 'CNY'].forEach(c => {
+    const v = Number(b[c]) || 0;
+    if (v === 0) return;
+    parts.push(`<div class="currency-chip"><span class="cc-code">${c}</span><span class="cc-val">${formatMoney(v)}</span></div>`);
+  });
+  if (!parts.length) {
+    parts.push(`<div class="currency-chip"><span class="cc-code">—</span><span class="cc-val">0</span></div>`);
+  }
+  return `<div class="currency-chips">${parts.join('')}</div>`;
 }
 
 let records = loadJSON(STORAGE_KEY, []);
 let accounts = loadJSON(ACCOUNTS_KEY, []);
 accounts = accounts.map(a => {
-  if (a.balances) return { ...a, linkedBankId: a.linkedBankId || '' };
+  if (a.balances) {
+    return {
+      ...a,
+      linkedBankId: a.linkedBankId || '',
+      interestRate: a.interestRate || 0,
+      interestPeriod: a.interestPeriod || 'yearly',
+      lastInterestDate: a.lastInterestDate || ''
+    };
+  }
   const bal = { MOP: 0, HKD: 0, CNY: 0 };
   if (a.currency && a.balance != null) bal[a.currency] = Number(a.balance);
-  return { id: a.id, name: a.name, type: a.type, balances: bal, note: a.note || '', linkedBankId: '' };
+  return {
+    id: a.id, name: a.name, type: a.type, balances: bal, note: a.note || '',
+    linkedBankId: '', interestRate: 0, interestPeriod: 'yearly', lastInterestDate: ''
+  };
 });
 saveJSON(ACCOUNTS_KEY, accounts);
 let liabilities = loadJSON(LIABILITIES_KEY, []);
@@ -305,6 +340,17 @@ function init() {
   $('#repay-form').addEventListener('submit', handleRepaySubmit);
   $('#repay-modal-overlay').addEventListener('click', e => { if (e.target.id === 'repay-modal-overlay') closeRepayModal(); });
 
+  $('#btn-transfer').addEventListener('click', openTransferModal);
+  $('#btn-close-transfer').addEventListener('click', closeTransferModal);
+  $('#btn-cancel-transfer').addEventListener('click', closeTransferModal);
+  $('#transfer-form').addEventListener('submit', handleTransferSubmit);
+  $('#transfer-modal-overlay').addEventListener('click', e => { if (e.target.id === 'transfer-modal-overlay') closeTransferModal(); });
+  ['transfer-from-amount','transfer-from-currency','transfer-to-currency'].forEach(id => {
+    const el = $('#' + id);
+    if (el) el.addEventListener('input', autoFillTransferToAmount);
+    if (el) el.addEventListener('change', autoFillTransferToAmount);
+  });
+
   $('#btn-add-liability').addEventListener('click', openAddLiabilityModal);
   $('#btn-close-liability-modal').addEventListener('click', closeLiabilityModal);
   $('#btn-cancel-liability').addEventListener('click', closeLiabilityModal);
@@ -338,6 +384,7 @@ function init() {
   $('#btn-backup-import').addEventListener('click', () => $('#import-file').click());
   $('#import-file').addEventListener('change', importBackup);
 
+  accrueDailyInterest();
   switchPage('monthly');
 }
 
@@ -412,10 +459,11 @@ function renderMonthly() {
   // 結餘：收入 − 消費支出
   let income = 0, consumption = 0, ccPurchase = 0, repayment = 0;
   getMonthRecords().forEach(r => {
+    if (isTransfer(r)) return; // 內部轉帳不計入
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') income += amt;
     else if (isRepayment(r)) repayment += amt;
-    else {
+    else if (r.type === 'expense') {
       consumption += amt;
       if (isCreditCardPurchase(r)) ccPurchase += amt;
     }
@@ -455,21 +503,28 @@ function renderMonthRecords() {
   }
   $('#no-records').style.display = 'none';
   list.forEach(r => {
-    const icon = CATEGORY_ICONS[r.category] || '🏷️';
+    const icon = isTransfer(r) ? '⇄' : (CATEGORY_ICONS[r.category] || '🏷️');
     const acc = accounts.find(a => a.id === (r.displayAccountId || r.accountId));
+    const toAcc = r.toAccountId ? accounts.find(a => a.id === r.toAccountId) : null;
     const wallet = r.viaWalletId ? accounts.find(a => a.id === r.viaWalletId) : null;
-    const sign = r.type === 'income' ? '+' : '−';
+    const sign = isTransfer(r) ? '⇄' : (r.type === 'income' ? '+' : '−');
+    const amtText = isTransfer(r)
+      ? `${money(r.currency, r.amount)}${r.toCurrency && r.toCurrency !== r.currency ? ' → ' + money(r.toCurrency, r.toAmount) : ''}`
+      : `${sign} ${money(r.currency, r.amount)}`;
+    const metaExtra = isTransfer(r)
+      ? ` · ${acc ? escapeHtml(acc.name) : ''} → ${toAcc ? escapeHtml(toAcc.name) : ''}`
+      : `${acc ? ' · ' + escapeHtml(acc.name) : ''}${wallet ? ' · via ' + escapeHtml(wallet.name) : ''}`;
     const item = document.createElement('div');
     item.className = 'record-item';
     item.innerHTML = `
       <div>
         <div class="record-category">${icon} ${escapeHtml(r.category)}</div>
-        <div class="record-meta">${r.date}${acc ? ' · ' + escapeHtml(acc.name) : ''}${wallet ? ' · via ' + escapeHtml(wallet.name) : ''}${r.note ? ' · ' + escapeHtml(r.note) : ''}</div>
+        <div class="record-meta">${r.date}${metaExtra}${r.note ? ' · ' + escapeHtml(r.note) : ''}</div>
       </div>
       <div class="record-right">
-        <div class="record-amount ${r.type}">${sign} ${money(r.currency, r.amount)}</div>
+        <div class="record-amount ${isTransfer(r) ? '' : r.type}">${amtText}</div>
         <div class="record-actions">
-          <button type="button" class="edit" data-id="${r.id}">編輯</button>
+          ${isTransfer(r) ? '' : `<button type="button" class="edit" data-id="${r.id}">編輯</button>`}
           <button type="button" class="delete" data-id="${r.id}">刪除</button>
         </div>
       </div>`;
@@ -490,11 +545,12 @@ function renderYearly() {
   const monthsInc = Array(12).fill(0);
   const monthsExp = Array(12).fill(0); // 各月消費支出（含刷卡、不含還款）
   yearRecs.forEach(r => {
+    if (isTransfer(r)) return;
     const m = new Date(r.date).getMonth();
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') { income += amt; monthsInc[m] += amt; }
     else if (isRepayment(r)) { /* 還款不計入消費支出 */ }
-    else { consumption += amt; monthsExp[m] += amt; }
+    else if (r.type === 'expense') { consumption += amt; monthsExp[m] += amt; }
   });
   $('#year-income').textContent = money('MOP', income);
   $('#year-expense').textContent = money('MOP', consumption);
@@ -536,7 +592,12 @@ function netAssetAccounts() {
 
 function getAccountLedger(accountId) {
   return records
-    .filter(r => r.accountId === accountId || r.displayAccountId === accountId || r.repayToId === accountId)
+    .filter(r =>
+      r.accountId === accountId ||
+      r.displayAccountId === accountId ||
+      r.repayToId === accountId ||
+      r.toAccountId === accountId
+    )
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
@@ -594,13 +655,12 @@ function renderAccounts() {
           }).join('');
         }
       }
+      const rateInfo = (a.type === '銀行' && a.interestRate > 0)
+        ? `<div class="account-meta">年利率 ${a.interestRate}% · ${a.interestPeriod === 'daily' ? '日息' : a.interestPeriod === 'monthly' ? '月息' : '年息'}</div>`
+        : '';
       const chips = isWallet
         ? `<div class="account-meta" style="margin-top:8px">扣帳銀行：${linked ? escapeHtml(linked.name) : '未設定'}（不計入淨額）</div>`
-        : `<div class="currency-chips">
-          <div class="currency-chip ${!b.MOP ? 'zero' : ''}"><span class="cc-code">MOP</span><span class="cc-val">${formatMoney(b.MOP || 0)}</span></div>
-          <div class="currency-chip ${!b.HKD ? 'zero' : ''}"><span class="cc-code">HKD</span><span class="cc-val">${formatMoney(b.HKD || 0)}</span></div>
-          <div class="currency-chip ${!b.CNY ? 'zero' : ''}"><span class="cc-code">CNY</span><span class="cc-val">${formatMoney(b.CNY || 0)}</span></div>
-        </div>`;
+        : currencyChipsHtml(b);
       const item = document.createElement('div');
       item.className = 'account-item' + (expanded ? ' expanded' : '');
       item.dataset.id = a.id;
@@ -608,7 +668,8 @@ function renderAccounts() {
         <div class="account-item-header">
           <div>
             <div class="account-name">${escapeHtml(a.name)}</div>
-            ${isDebt ? '<div class="account-meta" style="color:var(--expense)">正數＝欠款</div>' : ''}
+            ${isDebt ? '<div class="account-meta" style="color:var(--expense)"></div>' : ''}
+            ${rateInfo}
             ${a.note ? `<div class="account-meta">${escapeHtml(a.note)}</div>` : ''}
           </div>
           <div class="account-actions">
@@ -689,9 +750,12 @@ function populateLinkedBankSelect(selectedId = '') {
 }
 
 function onAccountTypeChange() {
-  const isWallet = $('#account-type').value === '電子錢包';
+  const type = $('#account-type').value;
+  const isWallet = type === '電子錢包';
+  const isBank = type === '銀行';
   $('#linked-bank-row').classList.toggle('hidden', !isWallet);
   $('#balances-row').classList.toggle('hidden', isWallet);
+  $('#interest-row').classList.toggle('hidden', !isBank);
   if (isWallet) populateLinkedBankSelect();
 }
 
@@ -729,6 +793,11 @@ function resolveEffectAccount(rec) {
 
 function reverseRecordEffect(rec) {
   if (!rec) return;
+  if (isTransfer(rec)) {
+    applyBalanceDelta(rec.accountId, rec.currency, Number(rec.amount));
+    applyBalanceDelta(rec.toAccountId, rec.toCurrency || rec.currency, -(Number(rec.toAmount ?? rec.amount)));
+    return;
+  }
   const amt = Number(rec.amount);
   if (isRepayment(rec)) {
     applyBalanceDelta(rec.accountId, rec.currency, amt);
@@ -744,6 +813,11 @@ function reverseRecordEffect(rec) {
 
 function applyRecordEffect(rec) {
   if (!rec) return;
+  if (isTransfer(rec)) {
+    applyBalanceDelta(rec.accountId, rec.currency, -Number(rec.amount));
+    applyBalanceDelta(rec.toAccountId, rec.toCurrency || rec.currency, Number(rec.toAmount ?? rec.amount));
+    return;
+  }
   const amt = Number(rec.amount);
   if (isRepayment(rec)) {
     applyBalanceDelta(rec.accountId, rec.currency, -amt);
@@ -870,7 +944,10 @@ function openAddAccountModal() {
   $('#account-form').reset();
   $('#account-edit-id').value = '';
   $('#acc-bal-mop').value = 0; $('#acc-bal-hkd').value = 0; $('#acc-bal-cny').value = 0;
+  $('#acc-interest-rate').value = 0;
+  $('#acc-interest-period').value = 'daily';
   $('#linked-bank-row').classList.add('hidden');
+  $('#interest-row').classList.add('hidden');
   $('#balances-row').classList.remove('hidden');
   $('#adjust-row').classList.add('hidden');
   $('#account-modal-overlay').classList.remove('hidden');
@@ -886,6 +963,8 @@ function openEditAccountModal(id) {
   $('#acc-bal-mop').value = a.balances?.MOP || 0;
   $('#acc-bal-hkd').value = a.balances?.HKD || 0;
   $('#acc-bal-cny').value = a.balances?.CNY || 0;
+  $('#acc-interest-rate').value = a.interestRate || 0;
+  $('#acc-interest-period').value = a.interestPeriod || 'yearly';
   $('#account-note').value = a.note || '';
   onAccountTypeChange();
   if (a.type === '電子錢包') populateLinkedBankSelect(a.linkedBankId || '');
@@ -911,6 +990,9 @@ function handleAccountSubmit(e) {
       CNY: Number($('#acc-bal-cny').value) || 0
     },
     linkedBankId: type === '電子錢包' ? ($('#linked-bank').value || '') : '',
+    interestRate: type === '銀行' ? (Number($('#acc-interest-rate').value) || 0) : 0,
+    interestPeriod: type === '銀行' ? ($('#acc-interest-period').value || 'yearly') : 'yearly',
+    lastInterestDate: existing?.lastInterestDate || '',
     note: $('#account-note').value.trim()
   };
   if (type === '電子錢包' && !acc.linkedBankId) { alert('請選擇扣帳銀行戶口'); return; }
@@ -969,6 +1051,121 @@ function handleRepaySubmit(e) {
   saveJSON(STORAGE_KEY, records);
   closeRepayModal();
   renderAccounts();
+}
+
+function nonCcAccounts() {
+  return accounts.filter(a => a.type !== '信用卡' && a.type !== '電子錢包');
+}
+function autoFillTransferToAmount() {
+  const fromAmt = Number($('#transfer-from-amount').value);
+  if (!fromAmt) return;
+  const fromCur = $('#transfer-from-currency').value;
+  const toCur = $('#transfer-to-currency').value;
+  const converted = convertAmount(fromAmt, fromCur, toCur);
+  $('#transfer-to-amount').value = Math.round(converted * 100) / 100;
+}
+function openTransferModal() {
+  const list = nonCcAccounts();
+  if (list.length < 2) { alert('至少需要兩個非信用卡／非電子錢包戶口才能轉帳'); return; }
+  const fromSel = $('#transfer-from');
+  const toSel = $('#transfer-to');
+  fromSel.innerHTML = '';
+  toSel.innerHTML = '';
+  list.forEach(a => {
+    const o1 = document.createElement('option');
+    o1.value = a.id; o1.textContent = `${ACCOUNT_TYPE_ICONS[a.type] || ''} ${a.name}`;
+    fromSel.appendChild(o1);
+    const o2 = document.createElement('option');
+    o2.value = a.id; o2.textContent = `${ACCOUNT_TYPE_ICONS[a.type] || ''} ${a.name}`;
+    toSel.appendChild(o2);
+  });
+  if (list.length > 1) toSel.selectedIndex = 1;
+  $('#transfer-from-amount').value = '';
+  $('#transfer-to-amount').value = '';
+  $('#transfer-note').value = '';
+  $('#transfer-date').valueAsDate = new Date();
+  $('#transfer-modal-overlay').classList.remove('hidden');
+}
+function closeTransferModal() { $('#transfer-modal-overlay').classList.add('hidden'); }
+function handleTransferSubmit(e) {
+  e.preventDefault();
+  const fromId = $('#transfer-from').value;
+  const toId = $('#transfer-to').value;
+  if (fromId === toId) { alert('轉出與轉入戶口不能相同'); return; }
+  const record = {
+    id: String(Date.now()),
+    type: 'transfer',
+    category: '內部轉帳',
+    amount: Number($('#transfer-from-amount').value),
+    currency: $('#transfer-from-currency').value,
+    toAmount: Number($('#transfer-to-amount').value),
+    toCurrency: $('#transfer-to-currency').value,
+    accountId: fromId,
+    toAccountId: toId,
+    date: $('#transfer-date').value,
+    note: $('#transfer-note').value.trim(),
+    createdAt: new Date().toISOString()
+  };
+  applyRecordEffect(record);
+  records.push(record);
+  saveJSON(STORAGE_KEY, records);
+  closeTransferModal();
+  renderAccounts();
+}
+
+/** 日息：開啟 App 時補入自 lastInterestDate 起的利息 */
+function accrueDailyInterest() {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  let changed = false;
+  accounts.forEach(acc => {
+    if (acc.type !== '銀行' || !acc.interestRate || acc.interestPeriod !== 'daily') return;
+    let last = acc.lastInterestDate;
+    if (!last) {
+      acc.lastInterestDate = todayStr;
+      changed = true;
+      return;
+    }
+    const lastDate = new Date(last + 'T00:00:00');
+    const cursor = new Date(lastDate);
+    cursor.setDate(cursor.getDate() + 1);
+    while (cursor <= today) {
+      const dateStr = cursor.toISOString().slice(0, 10);
+      const dailyRate = (Number(acc.interestRate) / 100) / 365;
+      ['MOP', 'HKD', 'CNY'].forEach(cur => {
+        const bal = Number(acc.balances?.[cur]) || 0;
+        if (bal <= 0) return;
+        const interest = Math.round(bal * dailyRate * 100) / 100;
+        if (interest < 0.01) return;
+        acc.balances[cur] = bal + interest;
+        records.push({
+          id: `${acc.id}_${dateStr}_${cur}`,
+          type: 'income',
+          amount: interest,
+          currency: cur,
+          date: dateStr,
+          category: '利息收入',
+          accountId: acc.id,
+          note: `日息 ${acc.interestRate}%`,
+          createdAt: new Date().toISOString()
+        });
+        changed = true;
+      });
+      acc.lastInterestDate = dateStr;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  });
+  if (changed) {
+    // dedupe interest records by id
+    const seen = new Set();
+    records = records.filter(r => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    });
+    saveJSON(STORAGE_KEY, records);
+    saveJSON(ACCOUNTS_KEY, accounts);
+  }
 }
 
 function openAddLiabilityModal() {
@@ -1060,18 +1257,44 @@ function renderAssets() {
 
   const detailEl = $('#assets-detail-list');
   detailEl.innerHTML = '';
-  chartItems.forEach(i => {
-    const pct = gross ? ((i.value / gross) * 100).toFixed(1) : 0;
-    const item = document.createElement('div');
-    item.className = 'account-item';
-    item.style.cursor = 'default';
-    item.innerHTML = `<div class="account-item-header">
-      <div class="account-name">${escapeHtml(i.label)}</div>
-      <div style="text-align:right;font-weight:700;color:var(--primary)">${money('MOP', i.value)}
-        <div class="account-meta">${pct}%</div></div>
-    </div>`;
-    detailEl.appendChild(item);
+  // 依分類列出所有戶口（排除信用卡、電子錢包）+ 強積金
+  const detailGroups = [
+    { title: '🏦 銀行', list: accounts.filter(a => a.type === '銀行') },
+    { title: '💵 現金', list: accounts.filter(a => a.type === '現金') },
+    { title: '📈 投資', list: accounts.filter(a => a.type === '投資') },
+    { title: '🏷️ 其他', list: accounts.filter(a => a.type === '其他') },
+    {
+      title: '🏛️ 強積金',
+      list: (mpfData.accounts || []).map(m => ({
+        id: m.id, name: m.name, type: '強積金',
+        balances: { MOP: 0, HKD: Number(m.balance) || 0, CNY: 0 },
+        isMpf: true
+      }))
+    }
+  ];
+  detailGroups.forEach(g => {
+    if (!g.list.length) return;
+    const title = document.createElement('div');
+    title.className = 'type-group-title';
+    title.style.marginTop = '8px';
+    title.textContent = g.title;
+    detailEl.appendChild(title);
+    g.list.forEach(a => {
+      const mop = a.isMpf ? toMOP(a.balances.HKD, 'HKD') : balancesToMOP(a.balances);
+      const item = document.createElement('div');
+      item.className = 'account-item';
+      item.style.cursor = 'default';
+      item.innerHTML = `<div class="account-item-header">
+        <div class="account-name">${escapeHtml(a.name)}</div>
+        <div style="text-align:right;font-weight:700;color:var(--primary)">${money('MOP', mop)}</div>
+      </div>
+      ${currencyChipsHtml(a.balances)}`;
+      detailEl.appendChild(item);
+    });
   });
+  if (!detailEl.children.length) {
+    detailEl.innerHTML = '<div class="empty-hint">尚無資產戶口</div>';
+  }
 
   const liabEl = $('#liabilities-list');
   liabEl.innerHTML = '';
