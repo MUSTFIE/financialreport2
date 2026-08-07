@@ -641,3 +641,107 @@ form { padding: 14px 18px 20px; }
     grid-column: 1 / -1;
   }
 }
+
+/* ===== iOS 風格微調 ===== */
+:root {
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --radius: 16px;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.04);
+  --border: rgba(60, 60, 67, 0.12);
+}
+
+body {
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.card, .chart-section, .records-section, .account-item, .mpf-card, .type-group, .asset-group, .month-bar {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.chart-section, .records-section {
+  background: var(--card);
+}
+
+.btn {
+  border-radius: 12px;
+  font-weight: 600;
+}
+.btn.primary {
+  background: #007aff;
+  border-color: #007aff;
+}
+.btn.primary:hover { background: #0066d6; border-color: #0066d6; }
+:root { --primary: #007aff; --primary-hover: #0066d6; }
+
+/* 記帳頁固定上下 */
+.stack-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.stack-col > .chart-section,
+.stack-col > .records-section {
+  margin-bottom: 0;
+}
+
+/* 資產四格摘要 */
+.summary-cards.summary-assets {
+  grid-template-columns: repeat(2, 1fr);
+}
+@media (min-width: 768px) {
+  .summary-cards.summary-assets {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* 各月明細優化 */
+.month-bar {
+  background: var(--card);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.month-bar .month-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.month-bar .month-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.month-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: #f2f2f7;
+  border-radius: 12px;
+}
+.month-stat .ms-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.month-stat .ms-val {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.month-stat.inc .ms-val { color: var(--income); }
+.month-stat.exp .ms-val { color: var(--expense); }
+.month-stat.bal.positive .ms-val { color: var(--income); }
+.month-stat.bal.negative .ms-val { color: var(--expense); }
+
+@media (max-width: 480px) {
+  .month-bar .month-stats {
+    grid-template-columns: 1fr;
+  }
+}
