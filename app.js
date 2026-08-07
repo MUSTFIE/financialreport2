@@ -17,7 +17,7 @@ const CATEGORY_ICONS = Object.fromEntries(CATEGORIES.map(c => [c.name, c.icon]))
 const ACCOUNT_TYPE_ICONS = {
   '現金':'💵','銀行':'🏦','信用卡':'💳','電子錢包':'📱','投資':'📈','其他':'🏷️'
 };
-const TYPE_ORDER = ['現金','銀行','信用卡','電子錢包','投資','其他'];
+const TYPE_ORDER = ['銀行','信用卡','電子錢包','現金','投資','其他'];
 const BAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#64748b','#0ea5e9'];
 
 // ========== Firebase 設定（請填入你的專案） ==========
@@ -542,13 +542,18 @@ function renderMonthRecords() {
       <div class="record-right">
         <div class="record-amount">${amtText}</div>
         <div class="record-actions">
-          ${isTransfer(r) ? '' : `<button type="button" class="edit" data-id="${r.id}">編輯</button>`}
+          <button type="button" class="edit" data-id="${r.id}">編輯</button>
           <button type="button" class="delete" data-id="${r.id}">刪除</button>
         </div>
       </div>`;
     el.appendChild(item);
   });
-  el.querySelectorAll('.edit').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openEditModal(btn.dataset.id); }));
+  el.querySelectorAll('.edit').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const rec = records.find(x => x.id === btn.dataset.id);
+    if (rec && isTransfer(rec)) openTransferModal(rec.id);
+    else openEditModal(btn.dataset.id);
+  }));
   el.querySelectorAll('.delete').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); deleteRecord(btn.dataset.id); }));
 }
 
@@ -1161,7 +1166,7 @@ function autoFillTransferToAmount() {
   const converted = convertAmount(fromAmt, fromCur, toCur);
   $('#transfer-to-amount').value = Math.round(converted * 100) / 100;
 }
-function openTransferModal() {
+function openTransferModal(editId = '') {
   const list = nonCcAccounts();
   if (list.length < 2) { alert('至少需要兩個非信用卡／非電子錢包戶口才能轉帳'); return; }
   const fromSel = $('#transfer-from');
@@ -1176,11 +1181,25 @@ function openTransferModal() {
     o2.value = a.id; o2.textContent = `${ACCOUNT_TYPE_ICONS[a.type] || ''} ${a.name}`;
     toSel.appendChild(o2);
   });
-  if (list.length > 1) toSel.selectedIndex = 1;
-  $('#transfer-from-amount').value = '';
-  $('#transfer-to-amount').value = '';
-  $('#transfer-note').value = '';
-  $('#transfer-date').valueAsDate = new Date();
+  const existing = editId ? records.find(r => r.id === editId) : null;
+  $('#transfer-edit-id').value = existing ? existing.id : '';
+  $('#transfer-modal-title').textContent = existing ? '編輯轉帳' : '內部轉帳';
+  if (existing) {
+    fromSel.value = existing.accountId;
+    toSel.value = existing.toAccountId;
+    $('#transfer-from-currency').value = existing.currency || 'MOP';
+    $('#transfer-from-amount').value = existing.amount;
+    $('#transfer-to-currency').value = existing.toCurrency || existing.currency || 'MOP';
+    $('#transfer-to-amount').value = existing.toAmount ?? existing.amount;
+    $('#transfer-date').value = existing.date;
+    $('#transfer-note').value = existing.note || '';
+  } else {
+    if (list.length > 1) toSel.selectedIndex = 1;
+    $('#transfer-from-amount').value = '';
+    $('#transfer-to-amount').value = '';
+    $('#transfer-note').value = '';
+    $('#transfer-date').valueAsDate = new Date();
+  }
   $('#transfer-modal-overlay').classList.remove('hidden');
 }
 function closeTransferModal() { $('#transfer-modal-overlay').classList.add('hidden'); }
@@ -1189,8 +1208,10 @@ function handleTransferSubmit(e) {
   const fromId = $('#transfer-from').value;
   const toId = $('#transfer-to').value;
   if (fromId === toId) { alert('轉出與轉入戶口不能相同'); return; }
+  const editId = $('#transfer-edit-id').value;
+  const old = editId ? records.find(r => r.id === editId) : null;
   const record = {
-    id: String(Date.now()),
+    id: editId || String(Date.now()),
     type: 'transfer',
     category: '內部轉帳',
     amount: Number($('#transfer-from-amount').value),
@@ -1201,13 +1222,17 @@ function handleTransferSubmit(e) {
     toAccountId: toId,
     date: $('#transfer-date').value,
     note: $('#transfer-note').value.trim(),
-    createdAt: new Date().toISOString()
+    createdAt: old?.createdAt || new Date().toISOString()
   };
+  if (old) reverseRecordEffect(old);
   applyRecordEffect(record);
-  records.push(record);
+  const idx = records.findIndex(r => r.id === record.id);
+  if (idx >= 0) records[idx] = record; else records.push(record);
   saveJSON(STORAGE_KEY, records);
   closeTransferModal();
-  renderAccounts();
+  if (currentPage === 'monthly') renderMonthly();
+  else if (currentPage === 'accounts') renderAccounts();
+  else renderAccounts();
 }
 
 /** 日息：開啟 App 時補入自 lastInterestDate 起的利息 */
