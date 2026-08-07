@@ -514,3 +514,55 @@ form { padding: 14px 18px 20px; }
 }
 .asset-group-body { padding: 0 10px 10px; }
 .asset-group-body .account-item { box-shadow: none; border: 1px solid var(--border); }
+
+/* dual column desktop */
+.dual-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dual-col > .chart-section,
+.dual-col > .records-section {
+  margin-bottom: 0;
+}
+
+/* accounts type groups grid on desktop */
+#accounts-by-type {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+#accounts-by-type .type-group {
+  margin-bottom: 16px;
+}
+
+@media (min-width: 768px) {
+  .dual-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+  #accounts-by-type {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 14px;
+  }
+  #accounts-by-type .type-group {
+    margin-bottom: 0;
+  }
+}
+
+/* mobile: hide app title */
+@media (max-width: 640px) {
+  header h1 { display: none; }
+  header { margin-bottom: 10px; }
+
+  /* summary: two on top, balance full width below */
+  .summary-cards.summary-stackable {
+    grid-template-columns: 1fr 1fr;
+  }
+  .summary-cards.summary-stackable .summary-bottom {
+    grid-column: 1 / -1;
+  }
+}
