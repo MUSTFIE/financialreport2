@@ -375,3 +375,96 @@ form { padding: 14px 18px 20px; }
   border-top: 1px solid var(--border);
   margin: 6px 0;
 }
+
+/* MPF summary two cards */
+.summary-cards.mpf-summary {
+  grid-template-columns: 1fr 1fr;
+}
+.mpf-month-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 1.1rem;
+  vertical-align: middle;
+}
+#mpf-change-month-label {
+  display: inline-block;
+  min-width: 5.5em;
+  font-size: 0.7rem;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+/* yearly month row horizontal */
+.month-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.month-bar .month-name {
+  font-weight: 600;
+  min-width: 5.5em;
+}
+.month-bar .month-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  text-align: left;
+  font-size: 0.85rem;
+}
+.month-bar .month-stats > div {
+  white-space: nowrap;
+}
+
+/* auth badge */
+#btn-auth.logged-in {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* currency chip: code + value same line, hide zero via not rendering */
+.currency-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.currency-chip {
+  flex: 0 1 auto;
+  min-width: auto;
+  background: #f3f4f6;
+  border-radius: 10px;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.currency-chip .cc-code {
+  display: inline;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 4px;
+}
+.currency-chip .cc-val {
+  display: inline;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* MPF summary equal fill */
+.summary-cards.mpf-summary {
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.summary-cards.mpf-summary .card {
+  min-width: 0;
+}
+.summary-cards.mpf-summary .card .label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
