@@ -598,14 +598,14 @@ function renderYearly() {
     const bal = monthsInc[m] - monthsExp[m];
     const balCls = bal > 0 ? 'positive' : bal < 0 ? 'negative' : '';
     const bar = document.createElement('div');
-    bar.className = 'month-bar';
+    bar.className = 'month-bar month-bar-list';
     bar.innerHTML = `
-      <div class="month-name">${currentYear}年${m + 1}月</div>
-      <div class="month-stats">
-        <div class="month-stat inc"><span class="ms-label">收入</span><span class="ms-val">＋${money('MOP', monthsInc[m])}</span></div>
-        <div class="month-stat exp"><span class="ms-label">支出</span><span class="ms-val">−${money('MOP', monthsExp[m])}</span></div>
-        <div class="month-stat bal ${balCls}"><span class="ms-label">結餘</span><span class="ms-val">${money('MOP', bal)}</span></div>
-      </div>`;
+      <span class="month-name">${currentYear}年${m + 1}月</span>
+      <span class="month-stats-inline">
+        <span class="inc">＋${money('MOP', monthsInc[m])}</span>
+        <span class="exp">−${money('MOP', monthsExp[m])}</span>
+        <span class="bal ${balCls}">結餘 ${money('MOP', bal)}</span>
+      </span>`;
     listEl.appendChild(bar);
   }
   if (!listEl.children.length) listEl.innerHTML = '<div class="empty-hint">本年尚無紀錄</div>';
@@ -1400,18 +1400,22 @@ function renderAssets() {
     {
       key: '強積金',
       title: '🏛️ 強積金',
-      list: (mpfData.accounts || []).map(m => ({
-        id: m.id, name: m.name, type: '強積金',
-        balances: { MOP: 0, HKD: Number(m.balance) || 0, CNY: 0 },
-        isMpf: true
-      }))
+      list: (mpfData.accounts || []).map(m => {
+        const cur = mpfCurrency(m);
+        const bal = Number(m.balance) || 0;
+        return {
+          id: m.id, name: m.name, type: '強積金',
+          balances: { MOP: cur === 'MOP' ? bal : 0, HKD: cur === 'HKD' ? bal : 0, CNY: 0 },
+          isMpf: true
+        };
+      })
     }
   ];
   let anyGroup = false;
   detailGroups.forEach(g => {
     if (!g.list.length) return;
     anyGroup = true;
-    const groupTotal = g.list.reduce((s, a) => s + (a.isMpf ? toMOP(a.balances.HKD, 'HKD') : balancesToMOP(a.balances)), 0);
+    const groupTotal = g.list.reduce((s, a) => s + balancesToMOP(a.balances), 0);
     const open = expandedAssetGroup === g.key;
     const wrap = document.createElement('div');
     wrap.className = 'asset-group' + (open ? ' open' : '');
@@ -1424,7 +1428,7 @@ function renderAssets() {
     const body = wrap.querySelector('.asset-group-body');
     if (open) {
       g.list.forEach(a => {
-        const mop = a.isMpf ? toMOP(a.balances.HKD, 'HKD') : balancesToMOP(a.balances);
+        const mop = balancesToMOP(a.balances);
         const item = document.createElement('div');
         item.className = 'account-item';
         item.style.cursor = 'default';
@@ -1500,15 +1504,26 @@ function calcMpfMonthChange(year, month) {
 }
 
 function renderMpf() {
-  let total = 0;
-  (mpfData.accounts || []).forEach(a => { total += Number(a.balance) || 0; });
-  $('#mpf-total').textContent = money('HKD', total);
+  let totalMop = 0;
+  (mpfData.accounts || []).forEach(a => { totalMop += mpfToMOP(a); });
+  $('#mpf-total').textContent = money('MOP', totalMop);
 
-  const change = calcMpfMonthChange(mpfViewYear, mpfViewMonth);
+  // 當月漲跌折合 MOP
+  const key = mpfMonthKey(mpfViewYear, mpfViewMonth);
+  let changeMop = 0;
+  (mpfData.accounts || []).forEach(acc => {
+    const cur = mpfCurrency(acc);
+    const snaps = [...(acc.snapshots || [])].sort((a, b) => a.month.localeCompare(b.month));
+    const idx = snaps.findIndex(s => s.month === key);
+    if (idx < 0) return;
+    if (idx === 0) return;
+    const diff = Number(snaps[idx].balance) - Number(snaps[idx - 1].balance);
+    changeMop += toMOP(diff, cur);
+  });
   $('#mpf-change-month-label').textContent = `${mpfViewYear}/${mpfViewMonth + 1} 漲跌`;
   const changeEl = $('#mpf-month-change');
-  changeEl.textContent = (change >= 0 ? '+' : '') + money('HKD', change);
-  changeEl.style.color = change > 0 ? 'var(--income)' : change < 0 ? 'var(--expense)' : '';
+  changeEl.textContent = (changeMop >= 0 ? '+' : '') + money('MOP', changeMop);
+  changeEl.style.color = changeMop > 0 ? 'var(--income)' : changeMop < 0 ? 'var(--expense)' : '';
 
   const el = $('#mpf-accounts-list');
   el.innerHTML = '';
@@ -1521,6 +1536,7 @@ function renderMpf() {
   mpfData.accounts.forEach(acc => {
     const card = document.createElement('div');
     const expanded = expandedMpfId === acc.id;
+    const cur = mpfCurrency(acc);
     card.className = 'mpf-card' + (expanded ? ' expanded' : '');
     card.dataset.id = acc.id;
     const snaps = [...(acc.snapshots || [])].sort((a, b) => b.month.localeCompare(a.month));
@@ -1534,11 +1550,11 @@ function renderMpf() {
             ? (() => {
                 const diff = Number(s.balance) - Number(prev.balance);
                 const up = diff >= 0;
-                return `<span class="${up ? 'mpf-change-up' : 'mpf-change-down'}">${up ? '+' : ''}${money('HKD', diff)}</span>`;
+                return `<span class="${up ? 'mpf-change-up' : 'mpf-change-down'}">${up ? '+' : ''}${money(cur, diff)}</span>`;
               })()
             : '<span class="account-meta">—</span>';
           return `<div class="mpf-change-item">
-            <span>${s.month} · ${money('HKD', s.balance)}${s.note ? ' · ' + escapeHtml(s.note) : ''}</span>
+            <span>${s.month} · ${money(cur, s.balance)}${s.note ? ' · ' + escapeHtml(s.note) : ''}</span>
             <span>${changeHtml}
               <button type="button" class="edit-snap" data-acc="${acc.id}" data-id="${s.id}" style="margin-left:6px;font-size:0.7rem;padding:2px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;cursor:pointer">編輯</button>
               <button type="button" class="del-snap" data-acc="${acc.id}" data-id="${s.id}" style="font-size:0.7rem;padding:2px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;cursor:pointer;color:#dc2626">刪</button>
@@ -1549,10 +1565,10 @@ function renderMpf() {
     card.innerHTML = `
       <div class="mpf-card-header mpf-card-toggle">
         <div>
-          <div class="mpf-card-name">${escapeHtml(acc.name)} <span class="account-meta">${expanded ? '▾' : '▸'}</span></div>
+          <div class="mpf-card-name">${escapeHtml(acc.name)} <span class="account-meta">${cur} ${expanded ? '▾' : '▸'}</span></div>
           ${acc.note ? `<div class="account-meta">${escapeHtml(acc.note)}</div>` : ''}
         </div>
-        <div class="mpf-card-balance">${money('HKD', acc.balance)}</div>
+        <div class="mpf-card-balance">${money(cur, acc.balance)}</div>
       </div>
       <div class="account-actions" style="margin-bottom:8px">
         <button type="button" class="add-snap" data-id="${acc.id}">＋ 紀錄結餘</button>
