@@ -142,7 +142,7 @@ let currentYear = new Date().getFullYear();
 let currentMonth = new Date().getMonth();
 let currentType = 'expense';
 let currentPage = 'monthly';
-let filters = { type: '', category: '', account: '' };
+let filters = { type: '', category: '', account: '', currency: '' };
 let expandedAccountId = null;
 let ledgerFilterMonth = ''; // '' = 全部, 'YYYY-MM'
 let expandedMpfId = null;
@@ -329,13 +329,15 @@ function init() {
     filters.type = $('#filter-type').value;
     filters.category = $('#filter-category').value;
     filters.account = $('#filter-account').value;
+    filters.currency = $('#filter-currency')?.value || '';
     renderMonthRecords();
   });
   $('#btn-filter-reset').addEventListener('click', () => {
-    filters = { type: '', category: '', account: '' };
+    filters = { type: '', category: '', account: '', currency: '' };
     $('#filter-type').value = '';
     $('#filter-category').value = '';
     $('#filter-account').value = '';
+    if ($('#filter-currency')) $('#filter-currency').value = '';
     renderMonthRecords();
   });
 
@@ -421,8 +423,8 @@ function changeMonth(delta) {
   currentMonth += delta;
   if (currentMonth > 11) { currentMonth = 0; currentYear++; }
   else if (currentMonth < 0) { currentMonth = 11; currentYear--; }
-  filters = { type: '', category: '', account: '' };
-  ['filter-type','filter-category','filter-account'].forEach(id => { const e = $('#'+id); if (e) e.value = ''; });
+  filters = { type: '', category: '', account: '', currency: '' };
+  ['filter-type','filter-category','filter-account','filter-currency'].forEach(id => { const e = $('#'+id); if (e) e.value = ''; });
   renderMonthly();
 }
 
@@ -438,6 +440,7 @@ function getFilteredMonthRecords() {
     if (filters.type && r.type !== filters.type) return false;
     if (filters.category && r.category !== filters.category) return false;
     if (filters.account && r.accountId !== filters.account && r.displayAccountId !== filters.account) return false;
+    if (filters.currency && r.currency !== filters.currency) return false;
     return true;
   });
 }
