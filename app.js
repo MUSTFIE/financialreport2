@@ -595,13 +595,16 @@ function renderYearly() {
   listEl.innerHTML = '';
   for (let m = 11; m >= 0; m--) {
     if (!monthsInc[m] && !monthsExp[m]) continue;
+    const bal = monthsInc[m] - monthsExp[m];
+    const balCls = bal > 0 ? 'positive' : bal < 0 ? 'negative' : '';
     const bar = document.createElement('div');
     bar.className = 'month-bar';
-    bar.innerHTML = `<div class="month-name">${currentYear}年${m + 1}月</div>
+    bar.innerHTML = `
+      <div class="month-name">${currentYear}年${m + 1}月</div>
       <div class="month-stats">
-        <div class="inc">＋ ${money('MOP', monthsInc[m])}</div>
-        <div class="exp">− ${money('MOP', monthsExp[m])}</div>
-        <div>結餘 ${money('MOP', monthsInc[m] - monthsExp[m])}</div>
+        <div class="month-stat inc"><span class="ms-label">收入</span><span class="ms-val">＋${money('MOP', monthsInc[m])}</span></div>
+        <div class="month-stat exp"><span class="ms-label">支出</span><span class="ms-val">−${money('MOP', monthsExp[m])}</span></div>
+        <div class="month-stat bal ${balCls}"><span class="ms-label">結餘</span><span class="ms-val">${money('MOP', bal)}</span></div>
       </div>`;
     listEl.appendChild(bar);
   }
@@ -1329,6 +1332,13 @@ function handleLiabilitySubmit(e) {
   renderAssets();
 }
 
+function mpfCurrency(a) {
+  return a?.currency === 'MOP' ? 'MOP' : 'HKD';
+}
+function mpfToMOP(a) {
+  return toMOP(Number(a.balance) || 0, mpfCurrency(a));
+}
+
 function renderAssets() {
   let bankMop = 0, otherMop = 0;
   accounts.forEach(a => {
@@ -1338,15 +1348,18 @@ function renderAssets() {
     else otherMop += mop; // 現金、投資、其他
   });
   let mpfTotal = 0;
-  (mpfData.accounts || []).forEach(a => { mpfTotal += toMOP(a.balance || 0, 'HKD'); });
+  (mpfData.accounts || []).forEach(a => { mpfTotal += mpfToMOP(a); });
   const gross = bankMop + otherMop + mpfTotal;
   // 扣減合計：僅手動扣減項，不含信用卡
   let otherLiab = 0;
   liabilities.forEach(l => { otherLiab += balancesToMOP(l.balances); });
   const totalLiab = otherLiab;
+  // 總存款 = 總資產 − 扣減 − 強積金
+  const deposit = gross - totalLiab - mpfTotal;
 
   $('#assets-gross').textContent = money('MOP', gross);
   $('#assets-liability').textContent = money('MOP', totalLiab);
+  if ($('#assets-deposit')) $('#assets-deposit').textContent = money('MOP', deposit);
   $('#assets-net').textContent = money('MOP', gross - totalLiab);
 
   // 分布：強積金 / 銀行 / 其他（不含信用卡）
@@ -1586,6 +1599,7 @@ function openAddMpfAccountModal() {
   $('#mpf-account-form').reset();
   $('#mpf-account-edit-id').value = '';
   $('#mpf-account-balance').value = 0;
+  if ($('#mpf-account-currency')) $('#mpf-account-currency').value = 'HKD';
   $('#mpf-account-modal-overlay').classList.remove('hidden');
 }
 function openEditMpfAccountModal(id) {
@@ -1595,6 +1609,7 @@ function openEditMpfAccountModal(id) {
   $('#mpf-account-edit-id').value = a.id;
   $('#mpf-account-name').value = a.name;
   $('#mpf-account-balance').value = a.balance;
+  if ($('#mpf-account-currency')) $('#mpf-account-currency').value = mpfCurrency(a);
   $('#mpf-account-note').value = a.note || '';
   $('#mpf-account-modal-overlay').classList.remove('hidden');
 }
@@ -1605,6 +1620,7 @@ function handleMpfAccountSubmit(e) {
   const existing = mpfData.accounts.find(a => a.id === id);
   const acc = {
     id, name: $('#mpf-account-name').value.trim(),
+    currency: ($('#mpf-account-currency')?.value === 'MOP') ? 'MOP' : 'HKD',
     balance: Number($('#mpf-account-balance').value) || 0,
     note: $('#mpf-account-note').value.trim(),
     snapshots: existing?.snapshots || []
