@@ -22,13 +22,13 @@ const BAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6',
 
 // ========== Firebase 設定（請填入你的專案） ==========
 const FIREBASE_CONFIG = {
-  apiKey: '',
-  authDomain: '',
-  databaseURL: '',
-  projectId: '',
-  storageBucket: '',
-  messagingSenderId: '',
-  appId: ''
+  apiKey: 'AIzaSyAr_4P8sHYFDH2ZIW-04kvN8baHaePxxQ8',
+  authDomain: 'financial-record-e41e9.firebaseapp.com',
+  databaseURL: 'https://financial-record-e41e9-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId: 'financial-record-e41e9',
+  storageBucket: 'financial-record-e41e9.firebasestorage.app',
+  messagingSenderId: '1022975525620',
+  appId: '1:1022975525620:web:c918f787d51aae670214a1'
 };
 let firebaseReady = false;
 let auth = null;
