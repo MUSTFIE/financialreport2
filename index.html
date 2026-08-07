@@ -16,6 +16,7 @@
         <button type="button" id="btn-rates" class="btn" title="匯率">💱</button>
         <button type="button" id="btn-add" class="btn primary page-only" data-page="monthly">＋ 新增</button>
         <button type="button" id="btn-add-account" class="btn primary page-only hidden" data-page="accounts">＋ 戶口</button>
+        <button type="button" id="btn-transfer" class="btn page-only hidden" data-page="accounts">⇄ 轉帳</button>
         <button type="button" id="btn-repay" class="btn page-only hidden" data-page="accounts">💳 還款</button>
         <button type="button" id="btn-add-liability" class="btn page-only hidden" data-page="assets">＋ 扣減</button>
         <button type="button" id="btn-add-mpf-account" class="btn primary page-only hidden" data-page="mpf">＋ 強積金</button>
@@ -299,6 +300,18 @@
             <div class="mc-row"><span>CNY</span><input type="number" id="acc-bal-cny" step="0.01" value="0"></div>
           </div>
         </div>
+        <div class="form-row hidden" id="interest-row">
+          <label>年利率（銀行）</label>
+          <div class="amount-row">
+            <input type="number" id="acc-interest-rate" step="0.01" min="0" placeholder="例如 2.5" value="0">
+            <select id="acc-interest-period">
+              <option value="daily">日息（自動每日入帳）</option>
+              <option value="monthly">月息</option>
+              <option value="yearly">年息</option>
+            </select>
+          </div>
+          <p class="field-hint">填年利率 %；選日息時每次開啟 App 會補入未入帳利息</p>
+        </div>
         <div class="form-row hidden" id="adjust-row">
           <label>調整金額（寫入流水）</label>
           <div class="adjust-box">
@@ -398,6 +411,61 @@
         <div class="form-actions">
           <button type="button" id="btn-cancel-repay" class="btn">取消</button>
           <button type="submit" class="btn primary">確認還款</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 內部轉帳 -->
+  <div id="transfer-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>內部轉帳</h3>
+        <button type="button" id="btn-close-transfer" class="btn-icon">×</button>
+      </div>
+      <form id="transfer-form">
+        <div class="form-row">
+          <label for="transfer-from">轉出戶口</label>
+          <select id="transfer-from" required></select>
+        </div>
+        <div class="form-row">
+          <label>轉出金額</label>
+          <div class="amount-row">
+            <select id="transfer-from-currency" required>
+              <option value="MOP">MOP</option>
+              <option value="HKD">HKD</option>
+              <option value="CNY">CNY</option>
+            </select>
+            <input type="number" id="transfer-from-amount" step="0.01" min="0.01" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="transfer-to">轉入戶口</label>
+          <select id="transfer-to" required></select>
+        </div>
+        <div class="form-row">
+          <label>轉入金額</label>
+          <div class="amount-row">
+            <select id="transfer-to-currency" required>
+              <option value="MOP">MOP</option>
+              <option value="HKD">HKD</option>
+              <option value="CNY">CNY</option>
+            </select>
+            <input type="number" id="transfer-to-amount" step="0.01" min="0.01" required>
+          </div>
+          <p class="field-hint">可依匯率自動帶入，亦可手動修改（支援跨貨幣）</p>
+        </div>
+        <div class="form-row">
+          <label for="transfer-date">日期</label>
+          <input type="date" id="transfer-date" required>
+        </div>
+        <div class="form-row">
+          <label for="transfer-note">備註</label>
+          <input type="text" id="transfer-note" placeholder="選填">
+        </div>
+        <div class="form-actions">
+          <button type="button" id="btn-cancel-transfer" class="btn">取消</button>
+          <button type="submit" class="btn primary">確認轉帳</button>
         </div>
       </form>
     </div>
