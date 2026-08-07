@@ -468,3 +468,20 @@ form { padding: 14px 18px 20px; }
   gap: 4px;
   flex-wrap: wrap;
 }
+
+.ledger-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.ledger-filter select {
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background: #fff;
+}
