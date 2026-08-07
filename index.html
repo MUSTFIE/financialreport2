@@ -29,7 +29,7 @@
         <h2 id="current-month-label">2026年8月</h2>
         <button type="button" id="btn-next-month" class="btn-icon">›</button>
       </div>
-      <div class="summary-cards">
+      <div class="summary-cards summary-stackable">
         <div class="card income">
           <div class="label">本月收入</div>
           <div class="value" id="summary-income">MOP 0</div>
@@ -39,46 +39,57 @@
           <div class="split-line"><span>消費支出</span><strong id="summary-expense">MOP 0</strong></div>
           <div class="split-line"><span>實際支出</span><strong id="summary-expense-all">MOP 0</strong></div>
         </div>
-        <div class="card balance">
+        <div class="card balance summary-bottom">
           <div class="label">結餘</div>
           <div class="value" id="summary-balance">MOP 0</div>
         </div>
       </div>
-      <section class="chart-section">
-        <h3>本月消費支出分類</h3>
-        <div id="categoryBars" class="bar-list"></div>
-        <div id="no-chart-data" class="empty-hint" style="display:none">本月尚無支出資料</div>
-      </section>
-      <section class="records-section">
-        <div class="section-header">
-          <h3>本月紀錄</h3>
-          <button type="button" id="btn-toggle-filter" class="btn btn-sm">篩選</button>
-        </div>
-        <div id="filter-panel" class="filter-panel hidden">
-          <div class="filter-row">
-            <label>類型</label>
-            <select id="filter-type">
-              <option value="">全部</option>
-              <option value="income">收入</option>
-              <option value="expense">支出</option>
-            </select>
+      <div class="dual-col">
+        <section class="chart-section">
+          <h3>本月消費支出分類</h3>
+          <div id="categoryBars" class="bar-list"></div>
+          <div id="no-chart-data" class="empty-hint" style="display:none">本月尚無支出資料</div>
+        </section>
+        <section class="records-section">
+          <div class="section-header">
+            <h3>本月紀錄</h3>
+            <button type="button" id="btn-toggle-filter" class="btn btn-sm">篩選</button>
           </div>
-          <div class="filter-row">
-            <label>分類</label>
-            <select id="filter-category"><option value="">全部</option></select>
+          <div id="filter-panel" class="filter-panel hidden">
+            <div class="filter-row">
+              <label>類型</label>
+              <select id="filter-type">
+                <option value="">全部</option>
+                <option value="income">收入</option>
+                <option value="expense">支出</option>
+              </select>
+            </div>
+            <div class="filter-row">
+              <label>分類</label>
+              <select id="filter-category"><option value="">全部</option></select>
+            </div>
+            <div class="filter-row">
+              <label>戶口</label>
+              <select id="filter-account"><option value="">全部</option></select>
+            </div>
+            <div class="filter-row">
+              <label>貨幣</label>
+              <select id="filter-currency">
+                <option value="">全部</option>
+                <option value="MOP">MOP</option>
+                <option value="HKD">HKD</option>
+                <option value="CNY">CNY</option>
+              </select>
+            </div>
+            <div class="filter-actions">
+              <button type="button" id="btn-filter-reset" class="btn btn-sm">清除</button>
+              <button type="button" id="btn-filter-apply" class="btn btn-sm primary">套用</button>
+            </div>
           </div>
-          <div class="filter-row">
-            <label>戶口</label>
-            <select id="filter-account"><option value="">全部</option></select>
-          </div>
-          <div class="filter-actions">
-            <button type="button" id="btn-filter-reset" class="btn btn-sm">清除</button>
-            <button type="button" id="btn-filter-apply" class="btn btn-sm primary">套用</button>
-          </div>
-        </div>
-        <div id="records-list"></div>
-        <div id="no-records" class="empty-hint">本月尚無紀錄</div>
-      </section>
+          <div id="records-list"></div>
+          <div id="no-records" class="empty-hint">本月尚無紀錄</div>
+        </section>
+      </div>
     </div>
 
     <div id="page-yearly" class="page">
@@ -87,20 +98,22 @@
         <h2 id="current-year-label">2026年</h2>
         <button type="button" id="btn-next-year" class="btn-icon">›</button>
       </div>
-      <div class="summary-cards">
+      <div class="summary-cards summary-stackable">
         <div class="card income"><div class="label">年度收入</div><div class="value" id="year-income">MOP 0</div></div>
         <div class="card expense"><div class="label">年度消費支出</div><div class="value" id="year-expense">MOP 0</div></div>
-        <div class="card balance"><div class="label">年度結餘</div><div class="value" id="year-balance">MOP 0</div></div>
+        <div class="card balance summary-bottom"><div class="label">年度結餘</div><div class="value" id="year-balance">MOP 0</div></div>
       </div>
-      <section class="chart-section">
-        <h3>年度消費支出分類</h3>
-        <div id="yearlyCategoryBars" class="bar-list"></div>
-        <div id="no-year-cat-data" class="empty-hint" style="display:none">本年尚無支出</div>
-      </section>
-      <section class="records-section">
-        <h3>各月明細</h3>
-        <div id="yearly-months-list"></div>
-      </section>
+      <div class="dual-col">
+        <section class="chart-section">
+          <h3>年度消費支出分類</h3>
+          <div id="yearlyCategoryBars" class="bar-list"></div>
+          <div id="no-year-cat-data" class="empty-hint" style="display:none">本年尚無支出</div>
+        </section>
+        <section class="records-section">
+          <h3>各月明細</h3>
+          <div id="yearly-months-list"></div>
+        </section>
+      </div>
     </div>
 
     <div id="page-accounts" class="page">
@@ -131,10 +144,10 @@
     </div>
 
     <div id="page-assets" class="page">
-      <div class="summary-cards">
+      <div class="summary-cards summary-stackable">
         <div class="card income"><div class="label">總資產 (MOP)</div><div class="value" id="assets-gross">MOP 0</div></div>
         <div class="card expense"><div class="label">扣減合計 (MOP)</div><div class="value" id="assets-liability">MOP 0</div></div>
-        <div class="card balance"><div class="label">淨資產 (MOP)</div><div class="value" id="assets-net">MOP 0</div></div>
+        <div class="card balance summary-bottom"><div class="label">淨資產 (MOP)</div><div class="value" id="assets-net">MOP 0</div></div>
       </div>
       <section class="chart-section">
         <h3>資產分布（強積金 / 銀行 / 其他 · MOP）</h3>
