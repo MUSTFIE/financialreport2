@@ -17,7 +17,6 @@
         <button type="button" id="btn-add" class="btn primary page-only" data-page="monthly">＋ 新增</button>
         <button type="button" id="btn-add-account" class="btn primary page-only hidden" data-page="accounts">＋ 戶口</button>
         <button type="button" id="btn-transfer" class="btn page-only hidden" data-page="accounts">⇄ 轉帳</button>
-        <button type="button" id="btn-collect" class="btn page-only hidden" data-page="accounts">↩ 收回</button>
         <button type="button" id="btn-repay" class="btn page-only hidden" data-page="accounts">💳 還款</button>
         <button type="button" id="btn-add-liability" class="btn page-only hidden" data-page="assets">＋ 扣減</button>
         <button type="button" id="btn-add-mpf-account" class="btn primary page-only hidden" data-page="mpf">＋ 強積金</button>
@@ -217,11 +216,10 @@
           <div class="type-toggle">
             <button type="button" class="type-btn active" data-type="expense">支出</button>
             <button type="button" class="type-btn" data-type="income">收入</button>
-            <button type="button" class="type-btn" data-type="advance">代墊</button>
           </div>
         </div>
         <div class="form-row">
-          <label for="amount" id="amount-label">金額</label>
+          <label for="amount">金額</label>
           <div class="amount-row">
             <select id="currency" required>
               <option value="MOP">MOP</option>
@@ -231,22 +229,13 @@
             <input type="number" id="amount" step="0.01" min="0.01" placeholder="0.00" required>
           </div>
         </div>
-        <div class="form-row hidden" id="advance-self-row">
-          <label for="advance-self-amount">自費金額（自己負擔）</label>
-          <input type="number" id="advance-self-amount" step="0.01" min="0" placeholder="0.00" value="0">
-          <p class="field-hint">總額 − 自費 = 記入應收；自費才算消費支出</p>
-        </div>
         <div class="form-row">
           <label for="date">日期</label>
           <input type="date" id="date" required>
         </div>
         <div class="form-row">
-          <label for="record-account" id="record-account-label">戶口（必選）</label>
+          <label for="record-account">戶口（必選）</label>
           <select id="record-account" required></select>
-        </div>
-        <div class="form-row hidden" id="receivable-account-row">
-          <label for="receivable-account">應收戶口</label>
-          <select id="receivable-account"></select>
         </div>
         <div class="form-row">
           <label for="category">分類</label>
@@ -311,7 +300,6 @@
             <option value="銀行">🏦 銀行</option>
             <option value="信用卡">💳 信用卡（正數＝欠款）</option>
             <option value="電子錢包">📱 電子錢包</option>
-            <option value="應收帳款">🧾 應收帳款</option>
             <option value="投資">📈 投資</option>
             <option value="其他">🏷️ 其他</option>
           </select>
@@ -496,49 +484,6 @@
         <div class="form-actions">
           <button type="button" id="btn-cancel-transfer" class="btn">取消</button>
           <button type="submit" class="btn primary">確認轉帳</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- 收回應收 -->
-  <div id="collect-modal-overlay" class="modal-overlay hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <h3>收回應收</h3>
-        <button type="button" id="btn-close-collect" class="btn-icon">×</button>
-      </div>
-      <form id="collect-form">
-        <div class="form-row">
-          <label for="collect-from">應收戶口</label>
-          <select id="collect-from" required></select>
-        </div>
-        <div class="form-row">
-          <label for="collect-to">收款戶口</label>
-          <select id="collect-to" required></select>
-        </div>
-        <div class="form-row">
-          <label>金額</label>
-          <div class="amount-row">
-            <select id="collect-currency" required>
-              <option value="MOP">MOP</option>
-              <option value="HKD">HKD</option>
-              <option value="CNY">CNY</option>
-            </select>
-            <input type="number" id="collect-amount" step="0.01" min="0.01" required>
-          </div>
-        </div>
-        <div class="form-row">
-          <label for="collect-date">日期</label>
-          <input type="date" id="collect-date" required>
-        </div>
-        <div class="form-row">
-          <label for="collect-note">備註</label>
-          <input type="text" id="collect-note" placeholder="例如：小明 AA 收回">
-        </div>
-        <div class="form-actions">
-          <button type="button" id="btn-cancel-collect" class="btn">取消</button>
-          <button type="submit" class="btn primary">確認收回</button>
         </div>
       </form>
     </div>
