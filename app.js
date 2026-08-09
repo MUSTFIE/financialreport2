@@ -11,8 +11,7 @@ const CATEGORIES = [
   { name: '保險費', icon: '🛡️' }, { name: '學貸', icon: '🎓' }, { name: '生活費', icon: '💵' },
   { name: '薪資', icon: '💼' }, { name: '電話費', icon: '📞' }, { name: '電費', icon: '⚡' },
   { name: '淘寶', icon: '🛒' }, { name: '上網費', icon: '🌐' }, { name: '醫療', icon: '🏥' },
-  { name: '信用卡還款', icon: '💳' }, { name: '戶口調整', icon: '⚖️' },
-  { name: '利息收入', icon: '💹' }, { name: '其他', icon: '🏷️' }
+  { name: '信用卡還款', icon: '💳' }, { name: '戶口調整', icon: '⚖️' }, { name: '其他', icon: '🏷️' }
 ];
 const CATEGORY_ICONS = Object.fromEntries(CATEGORIES.map(c => [c.name, c.icon]));
 const ACCOUNT_TYPE_ICONS = {
@@ -1101,10 +1100,6 @@ function handleAccountSubmit(e) {
     lastInterestDate: existing?.lastInterestDate || '',
     note: $('#account-note').value.trim()
   };
-  // 首次啟用日息：從今天起算，不補歷史
-  if (type === '銀行' && acc.interestPeriod === 'daily' && acc.interestRate > 0 && !acc.lastInterestDate) {
-    acc.lastInterestDate = localDateStr();
-  }
   if (type === '電子錢包' && !acc.linkedBankId) { alert('請選擇扣帳銀行戶口'); return; }
 
   const adjAction = $('#adjust-action').value;
@@ -1243,74 +1238,56 @@ function handleTransferSubmit(e) {
   else renderAccounts();
 }
 
-/** 本地日期 YYYY-MM-DD（避免 UTC 時差錯日） */
-function localDateStr(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/**
- * 銀行日息自動入帳
- * - 僅銀行 + 年利率 > 0 + 計息方式=日息
- * - 日息 = 餘額 × 年利率% ÷ 365（各貨幣分別計算）
- * - 首次設定／無 lastInterestDate：從當天起算，不補更早
- * - 每次開啟 App 補入 lastInterestDate 次日～今天
- * - < 0.01 不入帳；寫入流水「利息收入」
- */
+/** 日息：開啟 App 時補入自 lastInterestDate 起的利息 */
 function accrueDailyInterest() {
-  const todayStr = localDateStr();
-  const today = new Date(todayStr + 'T00:00:00');
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
   let changed = false;
-  const existingIds = new Set(records.map(r => r.id));
-
   accounts.forEach(acc => {
-    if (acc.type !== '銀行') return;
-    const rate = Number(acc.interestRate) || 0;
-    if (rate <= 0 || acc.interestPeriod !== 'daily') return;
-
-    if (!acc.lastInterestDate) {
+    if (acc.type !== '銀行' || !acc.interestRate || acc.interestPeriod !== 'daily') return;
+    let last = acc.lastInterestDate;
+    if (!last) {
       acc.lastInterestDate = todayStr;
       changed = true;
       return;
     }
-
-    const cursor = new Date(acc.lastInterestDate + 'T00:00:00');
+    const lastDate = new Date(last + 'T00:00:00');
+    const cursor = new Date(lastDate);
     cursor.setDate(cursor.getDate() + 1);
-    const dailyRate = (rate / 100) / 365;
-
-    while (cursor.getTime() <= today.getTime()) {
-      const dateStr = localDateStr(cursor);
+    while (cursor <= today) {
+      const dateStr = cursor.toISOString().slice(0, 10);
+      const dailyRate = (Number(acc.interestRate) / 100) / 365;
       ['MOP', 'HKD', 'CNY'].forEach(cur => {
         const bal = Number(acc.balances?.[cur]) || 0;
         if (bal <= 0) return;
         const interest = Math.round(bal * dailyRate * 100) / 100;
         if (interest < 0.01) return;
-        const rid = `interest_${acc.id}_${dateStr}_${cur}`;
-        if (existingIds.has(rid)) return;
-        acc.balances[cur] = Math.round((bal + interest) * 100) / 100;
+        acc.balances[cur] = bal + interest;
         records.push({
-          id: rid,
+          id: `${acc.id}_${dateStr}_${cur}`,
           type: 'income',
           amount: interest,
           currency: cur,
           date: dateStr,
           category: '利息收入',
           accountId: acc.id,
-          note: `日息 ${rate}%（年利率÷365）`,
+          note: `日息 ${acc.interestRate}%`,
           createdAt: new Date().toISOString()
         });
-        existingIds.add(rid);
         changed = true;
       });
       acc.lastInterestDate = dateStr;
-      changed = true;
       cursor.setDate(cursor.getDate() + 1);
     }
   });
-
   if (changed) {
+    // dedupe interest records by id
+    const seen = new Set();
+    records = records.filter(r => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    });
     saveJSON(STORAGE_KEY, records);
     saveJSON(ACCOUNTS_KEY, accounts);
   }
