@@ -533,15 +533,23 @@ function renderMonthly() {
   // 結餘：收入 − 消費支出
   let income = 0, consumption = 0, ccPurchase = 0, repayment = 0;
   getMonthRecords().forEach(r => {
-    if (isTransfer(r) || isAdvance(r) || isCollectReceivable(r) || isInterest(r)) return;
+    if (isTransfer(r) || isCollectReceivable(r) || isInterest(r)) return;
+    // 代墊：只有「自費」計入消費；應收部分不計
+    if (isAdvance(r)) {
+      const selfAmt = toMOP(r.selfAmount != null ? r.selfAmount : 0, r.currency);
+      if (selfAmt > 0) {
+        consumption += selfAmt;
+        const payAcc = accounts.find(a => a.id === r.accountId);
+        if (payAcc && payAcc.type === '信用卡') ccPurchase += selfAmt;
+      }
+      return;
+    }
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') income += amt;
     else if (isRepayment(r)) repayment += amt;
     else if (r.type === 'expense') {
-      // 代墊紀錄的自費部分用 selfAmount
-      const selfAmt = r.selfAmount != null ? toMOP(r.selfAmount, r.currency) : amt;
-      consumption += selfAmt;
-      if (isCreditCardPurchase(r)) ccPurchase += selfAmt;
+      consumption += amt;
+      if (isCreditCardPurchase(r)) ccPurchase += amt;
     }
   });
   const actual = consumption - ccPurchase + repayment;
@@ -971,7 +979,13 @@ function reverseRecordEffect(rec) {
   if (isAdvance(rec)) {
     const total = Number(rec.amount) || 0;
     const recvAmt = Number(rec.recvAmount) || 0;
-    applyBalanceDelta(rec.accountId, rec.currency, total);
+    const payAcc = accounts.find(a => a.id === rec.accountId);
+    // 還原支付戶口：信用卡減少欠款；銀行／現金加回餘額
+    if (payAcc && payAcc.type === '信用卡') {
+      applyBalanceDelta(rec.accountId, rec.currency, -total);
+    } else {
+      applyBalanceDelta(rec.accountId, rec.currency, total);
+    }
     if (rec.recvAccountId && recvAmt) applyBalanceDelta(rec.recvAccountId, rec.currency, -recvAmt);
     return;
   }
@@ -1423,8 +1437,13 @@ function handleAdvanceSubmit(e) {
   const category = $('#advance-category')?.value || '其他';
   const idBase = String(Date.now());
 
-  // 1) 支付戶口扣總額
-  applyBalanceDelta(payId, currency, -total);
+  // 1) 支付戶口：銀行／現金扣款；信用卡增加欠款
+  const payAcc = accounts.find(a => a.id === payId);
+  if (payAcc && payAcc.type === '信用卡') {
+    applyBalanceDelta(payId, currency, total);   // 欠款＋
+  } else {
+    applyBalanceDelta(payId, currency, -total);  // 餘額−
+  }
   // 2) 應收加應收金額
   if (recvAmt > 0) applyBalanceDelta(recv.id, currency, recvAmt);
 
