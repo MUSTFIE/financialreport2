@@ -20,8 +20,9 @@ body {
   min-height: 100vh; min-height: 100dvh;
 }
 .app {
-  max-width: 640px; margin: 0 auto;
-  padding: 12px 14px calc(var(--nav-h) + 16px + env(safe-area-inset-bottom));
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 12px 16px calc(var(--nav-h) + 16px + env(safe-area-inset-bottom));
 }
 .page { display: none; }
 .page.active { display: block; }
@@ -32,7 +33,14 @@ header {
   gap: 10px; margin-bottom: 14px; min-height: 44px;
 }
 header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
-.header-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.header-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+}
 
 .btn {
   min-height: 40px; padding: 8px 14px; border: 1px solid var(--border);
@@ -253,18 +261,38 @@ form { padding: 14px 18px 20px; }
 .hidden { display: none !important; }
 
 .bottom-nav {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  background: rgba(255,255,255,.92); backdrop-filter: blur(12px);
-  border-top: 1px solid var(--border);
-  display: flex; justify-content: space-around;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  /* iOS 玻璃效果 */
+  background: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 0.5px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -0.5px 0 rgba(255, 255, 255, 0.6) inset;
+  display: flex;
+  justify-content: space-around;
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
-  z-index: 50; max-width: 640px; margin: 0 auto;
+  z-index: 50;
+  max-width: 960px;
+  margin: 0 auto;
 }
 .nav-btn {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px; background: none; border: none; font-size: 0.65rem; color: var(--muted);
-  cursor: pointer; min-height: 48px; touch-action: manipulation;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  font-size: 0.65rem;
+  color: var(--muted);
+  cursor: pointer;
+  min-height: 48px;
+  touch-action: manipulation;
 }
 .nav-btn .nav-icon { font-size: 1.25rem; line-height: 1; }
 .nav-btn.active { color: var(--primary); font-weight: 650; }
@@ -421,3 +449,345 @@ form { padding: 14px 18px 20px; }
   border-color: var(--primary);
   color: var(--primary);
 }
+
+/* currency chip: code + value same line, hide zero via not rendering */
+.currency-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.currency-chip {
+  flex: 0 1 auto;
+  min-width: auto;
+  background: #f3f4f6;
+  border-radius: 10px;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.currency-chip .cc-code {
+  display: inline;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 4px;
+}
+.currency-chip .cc-val {
+  display: inline;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* MPF summary equal fill */
+.summary-cards.mpf-summary {
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.summary-cards.mpf-summary .card {
+  min-width: 0;
+}
+.summary-cards.mpf-summary .card .label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ledger-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.ledger-filter select {
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background: #fff;
+}
+
+.mpf-card-toggle { cursor: pointer; }
+.mpf-card.expanded { box-shadow: 0 4px 16px rgba(79,70,229,.12); }
+
+.asset-group {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.asset-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 0.9rem;
+}
+.asset-group-header:hover { background: #f9fafb; }
+.asset-group-total {
+  font-size: 0.85rem;
+  color: var(--primary);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.asset-group-body { padding: 0 10px 10px; }
+.asset-group-body .account-item { box-shadow: none; border: 1px solid var(--border); }
+
+/* ========== 響應式版面 ========== */
+
+/* 數字對齊 */
+.card .value,
+.record-amount,
+.cc-val,
+.bar-val,
+.mpf-card-balance,
+.asset-group-total {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 手機：單欄；桌面：雙欄 */
+.dual-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dual-col > .chart-section,
+.dual-col > .records-section {
+  margin-bottom: 0;
+}
+
+#accounts-by-type {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+#accounts-by-type .type-group {
+  margin-bottom: 16px;
+}
+
+/* ≥768px：平板／桌面 — 雙欄、戶口兩欄 */
+@media (min-width: 768px) {
+  .app {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .dual-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+
+  #accounts-by-type {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 16px;
+  }
+  #accounts-by-type .type-group {
+    margin-bottom: 0;
+  }
+}
+
+/* ≥1024px：稍大間距 */
+@media (min-width: 1024px) {
+  .app {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .dual-col {
+    gap: 20px;
+  }
+}
+
+/* ≤640px：手機 — 隱藏標題、摘要兩上一下、上方按鈕佔滿寬 */
+@media (max-width: 640px) {
+  header h1 { display: none; }
+  header {
+    margin-bottom: 10px;
+    width: 100%;
+  }
+  .header-actions {
+    width: 100%;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+  .header-actions .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+  .header-actions .btn.primary {
+    flex: 1 1 auto;
+  }
+
+  .summary-cards.summary-stackable {
+    grid-template-columns: 1fr 1fr;
+  }
+  .summary-cards.summary-stackable .summary-bottom {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ===== iOS 風格微調 ===== */
+:root {
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --radius: 16px;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.04);
+  --border: rgba(60, 60, 67, 0.12);
+}
+
+body {
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.card, .chart-section, .records-section, .account-item, .mpf-card, .type-group, .asset-group, .month-bar {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.chart-section, .records-section {
+  background: var(--card);
+}
+
+.btn {
+  border-radius: 12px;
+  font-weight: 600;
+}
+.btn.primary {
+  background: #007aff;
+  border-color: #007aff;
+}
+.btn.primary:hover { background: #0066d6; border-color: #0066d6; }
+:root { --primary: #007aff; --primary-hover: #0066d6; }
+
+/* 記帳頁固定上下 */
+.stack-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.stack-col > .chart-section,
+.stack-col > .records-section {
+  margin-bottom: 0;
+}
+
+/* 資產四格摘要 */
+.summary-cards.summary-assets {
+  grid-template-columns: repeat(2, 1fr);
+}
+@media (min-width: 768px) {
+  .summary-cards.summary-assets {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* 各月明細優化 */
+.month-bar {
+  background: var(--card);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.month-bar .month-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.month-bar .month-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.month-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: #f2f2f7;
+  border-radius: 12px;
+}
+.month-stat .ms-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.month-stat .ms-val {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.month-stat.inc .ms-val { color: var(--income); }
+.month-stat.exp .ms-val { color: var(--expense); }
+.month-stat.bal.positive .ms-val { color: var(--income); }
+.month-stat.bal.negative .ms-val { color: var(--expense); }
+
+@media (max-width: 480px) {
+  .month-bar .month-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 記帳摘要：手機 2 格、桌面 4 格 */
+.summary-cards.summary-monthly {
+  grid-template-columns: repeat(2, 1fr);
+}
+@media (min-width: 768px) {
+  .summary-cards.summary-monthly {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* 確保記帳頁上下排列（不被 dual-col 影響） */
+.stack-col {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px;
+}
+
+/* 各月明細：單行列表 */
+.month-bar.month-bar-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.month-bar.month-bar-list .month-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  min-width: 5.5em;
+}
+.month-bar.month-bar-list .month-stats-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.month-bar.month-bar-list .inc { color: var(--income); }
+.month-bar.month-bar-list .exp { color: var(--expense); }
+.month-bar.month-bar-list .bal.positive { color: var(--income); }
+.month-bar.month-bar-list .bal.negative { color: var(--expense); }
