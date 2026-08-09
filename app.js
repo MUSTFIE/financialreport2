@@ -3,6 +3,8 @@ const RATES_KEY = 'accounting_rates_v2';
 const ACCOUNTS_KEY = 'accounting_accounts_v2';
 const LIABILITIES_KEY = 'accounting_liabilities_v1';
 const MPF_KEY = 'accounting_mpf_v3';
+const CUSTOM_CAT_SUM_KEY = 'accounting_custom_cat_sum_v1';
+const INTEREST_FLOOR = '2026-08-08';
 
 const DEFAULT_RATES = { MOP: 1, HKD: 1.03, CNY: 1.196, HKD_CNY: 0.86 };
 const CATEGORIES = [
@@ -11,13 +13,14 @@ const CATEGORIES = [
   { name: '保險費', icon: '🛡️' }, { name: '學貸', icon: '🎓' }, { name: '生活費', icon: '💵' },
   { name: '薪資', icon: '💼' }, { name: '電話費', icon: '📞' }, { name: '電費', icon: '⚡' },
   { name: '淘寶', icon: '🛒' }, { name: '上網費', icon: '🌐' }, { name: '醫療', icon: '🏥' },
-  { name: '信用卡還款', icon: '💳' }, { name: '戶口調整', icon: '⚖️' }, { name: '其他', icon: '🏷️' }
+  { name: '信用卡還款', icon: '💳' }, { name: '戶口調整', icon: '⚖️' }, { name: '其他', icon: '🏷️' },
+  { name: '代墊', icon: '🧾' }, { name: '收回應收', icon: '📥' }, { name: '利息收入', icon: '💹' }
 ];
 const CATEGORY_ICONS = Object.fromEntries(CATEGORIES.map(c => [c.name, c.icon]));
 const ACCOUNT_TYPE_ICONS = {
-  '現金':'💵','銀行':'🏦','信用卡':'💳','電子錢包':'📱','投資':'📈','其他':'🏷️'
+  '現金':'💵','銀行':'🏦','信用卡':'💳','電子錢包':'📱','投資':'📈','其他':'🏷️','應收帳款':'🧾'
 };
-const TYPE_ORDER = ['銀行','信用卡','電子錢包','現金','投資','其他'];
+const TYPE_ORDER = ['銀行','信用卡','電子錢包','現金','投資','應收帳款','其他'];
 const BAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#64748b','#0ea5e9'];
 
 // ========== Firebase 設定（請填入你的專案） ==========
@@ -87,8 +90,24 @@ function isTransfer(r) {
 /** 信用卡消費（非還款）：記在信用卡戶口的支出 */
 function isCreditCardPurchase(r) {
   if (!r || r.type !== 'expense' || isRepayment(r) || isTransfer(r)) return false;
+  if (isAdvance(r) || isCollectReceivable(r)) return false;
   const acc = accounts.find(a => a.id === r.accountId);
   return !!(acc && acc.type === '信用卡');
+}
+/** 代墊紀錄（含自費與應收拆分） */
+function isAdvance(r) {
+  return !!(r && (r.isAdvance || r.category === '代墊'));
+}
+/** 收回應收 */
+function isCollectReceivable(r) {
+  return !!(r && (r.isCollectReceivable || r.category === '收回應收'));
+}
+/** 不計入消費支出／收入的特殊紀錄 */
+function isNonOperating(r) {
+  return isTransfer(r) || isAdvance(r) || isCollectReceivable(r);
+}
+function getReceivableAccount() {
+  return accounts.find(a => a.type === '應收帳款') || null;
 }
 /** 各幣互轉（經 MOP） */
 function convertAmount(amount, fromCur, toCur) {
@@ -199,7 +218,7 @@ function updateAuthButton() {
   if (!btn) return;
   if (!firebaseReady) {
     btn.title = '未設定 Firebase';
-    btn.textContent = '👤';
+    btn.textContent = '������';
     btn.classList.remove('logged-in');
     return;
   }
@@ -209,7 +228,7 @@ function updateAuthButton() {
     btn.classList.add('logged-in');
   } else {
     btn.title = 'Google 登入';
-    btn.textContent = '👤';
+    btn.textContent = '������';
     btn.classList.remove('logged-in');
   }
 }
@@ -399,9 +418,41 @@ function init() {
   $('#btn-csv-mpf').addEventListener('click', exportMpfCSV);
   $('#btn-backup-export').addEventListener('click', exportBackup);
   $('#btn-backup-import').addEventListener('click', () => $('#import-file').click());
-  $('#import-file').addEventListener('change', importBackup);
+    $('#import-file').addEventListener('change', importBackup);
+
+  // 代墊 / 收回應收
+  const btnAdv = $('#btn-advance');
+  if (btnAdv) btnAdv.addEventListener('click', openAdvanceModal);
+  const btnCloseAdv = $('#btn-close-advance');
+  if (btnCloseAdv) btnCloseAdv.addEventListener('click', closeAdvanceModal);
+  const btnCancelAdv = $('#btn-cancel-advance');
+  if (btnCancelAdv) btnCancelAdv.addEventListener('click', closeAdvanceModal);
+  const advForm = $('#advance-form');
+  if (advForm) advForm.addEventListener('submit', handleAdvanceSubmit);
+  const advOverlay = $('#advance-modal-overlay');
+  if (advOverlay) advOverlay.addEventListener('click', e => { if (e.target.id === 'advance-modal-overlay') closeAdvanceModal(); });
+  ['advance-total', 'advance-self'].forEach(id => {
+    const el = $('#' + id);
+    if (el) el.addEventListener('input', () => {
+      const total = Number($('#advance-total')?.value) || 0;
+      const self = Number($('#advance-self')?.value) || 0;
+      if ($('#advance-recv')) $('#advance-recv').value = Math.max(0, Math.round((total - self) * 100) / 100);
+    });
+  });
+
+  const btnCol = $('#btn-collect');
+  if (btnCol) btnCol.addEventListener('click', openCollectModal);
+  const btnCloseCol = $('#btn-close-collect');
+  if (btnCloseCol) btnCloseCol.addEventListener('click', closeCollectModal);
+  const btnCancelCol = $('#btn-cancel-collect');
+  if (btnCancelCol) btnCancelCol.addEventListener('click', closeCollectModal);
+  const colForm = $('#collect-form');
+  if (colForm) colForm.addEventListener('submit', handleCollectSubmit);
+  const colOverlay = $('#collect-modal-overlay');
+  if (colOverlay) colOverlay.addEventListener('click', e => { if (e.target.id === 'collect-modal-overlay') closeCollectModal(); });
 
   accrueDailyInterest();
+  startInterestAutoAccrue();
   switchPage('monthly');
 }
 
@@ -472,18 +523,20 @@ function populateFilterOptions() {
 
 function renderMonthly() {
   $('#current-month-label').textContent = `${currentYear}年${currentMonth + 1}月`;
-  // 消費支出：含刷卡、不含還款
+  // 消費支出：含刷卡、不含還款／代墊／收回
   // 實際支出：一般支出（非刷卡）+ 還款
   // 結餘：收入 − 消費支出
   let income = 0, consumption = 0, ccPurchase = 0, repayment = 0;
   getMonthRecords().forEach(r => {
-    if (isTransfer(r)) return; // 內部轉帳不計入
+    if (isTransfer(r) || isAdvance(r) || isCollectReceivable(r)) return;
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') income += amt;
     else if (isRepayment(r)) repayment += amt;
     else if (r.type === 'expense') {
-      consumption += amt;
-      if (isCreditCardPurchase(r)) ccPurchase += amt;
+      // 代墊紀錄的自費部分用 selfAmount
+      const selfAmt = r.selfAmount != null ? toMOP(r.selfAmount, r.currency) : amt;
+      consumption += selfAmt;
+      if (isCreditCardPurchase(r)) ccPurchase += selfAmt;
     }
   });
   const actual = consumption - ccPurchase + repayment;
@@ -493,11 +546,12 @@ function renderMonthly() {
   $('#summary-balance').textContent = money('MOP', income - consumption);
   populateFilterOptions();
   renderMonthBars();
+  renderCustomCatSum();
   renderMonthRecords();
 }
 
 function renderMonthBars() {
-  const list = getMonthRecords().filter(r => r.type === 'expense' && !isRepayment(r));
+  const list = getMonthRecords().filter(r => r.type === 'expense' && !isRepayment(r) && !isAdvance(r) && !isCollectReceivable(r));
   if (!list.length) {
     $('#categoryBars').innerHTML = '';
     $('#no-chart-data').style.display = 'block';
@@ -507,7 +561,7 @@ function renderMonthBars() {
   const byCat = {};
   list.forEach(r => { const c = r.category || '其他'; byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency); });
   const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-  renderBarList($('#categoryBars'), sorted.map(([c, v]) => ({ label: `${CATEGORY_ICONS[c] || '🏷️'} ${c}`, value: v })));
+  renderBarList($('#categoryBars'), sorted.map(([c, v]) => ({ label: `${CATEGORY_ICONS[c] || '������️'} ${c}`, value: v })));
 }
 
 function renderMonthRecords() {
@@ -521,15 +575,22 @@ function renderMonthRecords() {
   }
   $('#no-records').style.display = 'none';
   list.forEach(r => {
-    const icon = isTransfer(r) ? '⇄' : (CATEGORY_ICONS[r.category] || '🏷️');
+    const icon = isTransfer(r) ? '⇄' : (CATEGORY_ICONS[r.category] || '������️');
     const acc = accounts.find(a => a.id === (r.displayAccountId || r.accountId));
     const toAcc = r.toAccountId ? accounts.find(a => a.id === r.toAccountId) : null;
     const wallet = r.viaWalletId ? accounts.find(a => a.id === r.viaWalletId) : null;
-    const sign = isTransfer(r) ? '⇄' : (r.type === 'income' ? '+' : '−');
-    const amtText = isTransfer(r)
-      ? `−${money(r.currency, r.amount)} → +${money(r.toCurrency || r.currency, r.toAmount ?? r.amount)}`
-      : `${sign} ${money(r.currency, r.amount)}`;
-    const metaExtra = isTransfer(r)
+    const sign = isTransfer(r) || isCollectReceivable(r) ? '⇄' : (r.type === 'income' ? '+' : '−');
+    let amtText;
+    if (isTransfer(r) || isCollectReceivable(r)) {
+      amtText = `−${money(r.currency, r.amount)} → +${money(r.toCurrency || r.currency, r.toAmount ?? r.amount)}`;
+    } else if (isAdvance(r)) {
+      const selfP = r.selfAmount != null ? `自費 ${money(r.currency, r.selfAmount)}` : '';
+      const recvP = r.recvAmount ? `應收 ${money(r.currency, r.recvAmount)}` : '';
+      amtText = `−${money(r.currency, r.amount)}` + (selfP || recvP ? `（${[selfP, recvP].filter(Boolean).join(' · ')}）` : '');
+    } else {
+      amtText = `${sign} ${money(r.currency, r.amount)}`;
+    }
+    const metaExtra = (isTransfer(r) || isCollectReceivable(r))
       ? ` · ${acc ? escapeHtml(acc.name) : ''} → ${toAcc ? escapeHtml(toAcc.name) : ''}`
       : `${acc ? ' · ' + escapeHtml(acc.name) : ''}${wallet ? ' · via ' + escapeHtml(wallet.name) : ''}`;
     const item = document.createElement('div');
@@ -551,6 +612,8 @@ function renderMonthRecords() {
   el.querySelectorAll('.edit').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation();
     const rec = records.find(x => x.id === btn.dataset.id);
+    if (rec && isAdvance(rec)) { alert('代墊紀錄請刪除後重新新增'); return; }
+    if (rec && isCollectReceivable(rec)) { alert('收回紀錄請刪除後重新新增'); return; }
     if (rec && isTransfer(rec)) openTransferModal(rec.id);
     else openEditModal(btn.dataset.id);
   }));
@@ -568,7 +631,7 @@ function renderYearly() {
   const monthsInc = Array(12).fill(0);
   const monthsExp = Array(12).fill(0); // 各月消費支出（含刷卡、不含還款）
   yearRecs.forEach(r => {
-    if (isTransfer(r)) return;
+    if (isTransfer(r) || isAdvance(r) || isCollectReceivable(r)) return;
     const m = new Date(r.date).getMonth();
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') { income += amt; monthsInc[m] += amt; }
@@ -579,7 +642,7 @@ function renderYearly() {
   $('#year-expense').textContent = money('MOP', consumption);
   $('#year-balance').textContent = money('MOP', income - consumption);
 
-  const expRecs = yearRecs.filter(r => r.type === 'expense' && !isRepayment(r));
+  const expRecs = yearRecs.filter(r => r.type === 'expense' && !isRepayment(r) && !isAdvance(r) && !isCollectReceivable(r));
   if (!expRecs.length) {
     $('#yearlyCategoryBars').innerHTML = '';
     $('#no-year-cat-data').style.display = 'block';
@@ -588,7 +651,7 @@ function renderYearly() {
     const byCat = {};
     expRecs.forEach(r => { const c = r.category || '其他'; byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency); });
     const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-    renderBarList($('#yearlyCategoryBars'), sorted.map(([c, v]) => ({ label: `${CATEGORY_ICONS[c] || '🏷️'} ${c}`, value: v })));
+    renderBarList($('#yearlyCategoryBars'), sorted.map(([c, v]) => ({ label: `${CATEGORY_ICONS[c] || '������️'} ${c}`, value: v })));
   }
 
   const listEl = $('#yearly-months-list');
@@ -613,7 +676,7 @@ function renderYearly() {
 
 /** 計入淨額的戶口（不含電子錢包、信用卡） */
 function netAssetAccounts() {
-  return accounts.filter(a => a.type !== '電子錢包' && a.type !== '信用卡');
+  return accounts.filter(a => a.type !== '電子錢包' && a.type !== '信用卡' && a.type !== '應收帳款');
 }
 
 function getAccountLedger(accountId, monthKey = '') {
@@ -895,7 +958,14 @@ function resolveEffectAccount(rec) {
 
 function reverseRecordEffect(rec) {
   if (!rec) return;
-  if (isTransfer(rec)) {
+  if (isAdvance(rec)) {
+    const total = Number(rec.amount) || 0;
+    const recvAmt = Number(rec.recvAmount) || 0;
+    applyBalanceDelta(rec.accountId, rec.currency, total);
+    if (rec.recvAccountId && recvAmt) applyBalanceDelta(rec.recvAccountId, rec.currency, -recvAmt);
+    return;
+  }
+  if (isTransfer(rec) || isCollectReceivable(rec)) {
     applyBalanceDelta(rec.accountId, rec.currency, Number(rec.amount));
     applyBalanceDelta(rec.toAccountId, rec.toCurrency || rec.currency, -(Number(rec.toAmount ?? rec.amount)));
     return;
@@ -1041,7 +1111,8 @@ function deleteRecord(id) {
   if (rec) reverseRecordEffect(rec);
   records = records.filter(r => r.id !== id);
   saveJSON(STORAGE_KEY, records);
-  renderMonthly();
+  saveJSON(ACCOUNTS_KEY, accounts);
+  switchPage(currentPage);
 }
 
 function openAddAccountModal() {
@@ -1101,6 +1172,10 @@ function handleAccountSubmit(e) {
     note: $('#account-note').value.trim()
   };
   if (type === '電子錢包' && !acc.linkedBankId) { alert('請選擇扣帳銀行戶口'); return; }
+  if (type === '應收帳款') {
+    const other = accounts.find(a => a.type === '應收帳款' && a.id !== id);
+    if (other) { alert('只能有一個應收帳款總戶口'); return; }
+  }
 
   const adjAction = $('#adjust-action').value;
   const adjAmt = Number($('#adjust-amount').value) || 0;
@@ -1239,23 +1314,216 @@ function handleTransferSubmit(e) {
 }
 
 /** 日息：開啟 App 時補入自 lastInterestDate 起的利息 */
+
+// ========== 自訂分類加總 ==========
+function loadCustomCatSum() {
+  return loadJSON(CUSTOM_CAT_SUM_KEY, []);
+}
+function saveCustomCatSum(cats) {
+  saveJSON(CUSTOM_CAT_SUM_KEY, cats);
+}
+function renderCustomCatSum() {
+  const box = $('#custom-cat-sum');
+  if (!box) return;
+  const list = getMonthRecords().filter(r => r.type === 'expense' && !isRepayment(r) && !isAdvance(r) && !isCollectReceivable(r));
+  const byCat = {};
+  list.forEach(r => {
+    const c = r.category || '其他';
+    byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency);
+  });
+  const selected = new Set(loadCustomCatSum());
+  const cats = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a]);
+  if (!cats.length) {
+    box.innerHTML = '<div class="empty-hint">本月尚無支出可加總</div>';
+    return;
+  }
+  let total = 0;
+  const chips = cats.map(c => {
+    const on = selected.has(c);
+    if (on) total += byCat[c];
+    return `<label class="cat-sum-chip${on ? ' active' : ''}">
+      <input type="checkbox" data-cat="${escapeHtml(c)}" ${on ? 'checked' : ''}>
+      <span>${CATEGORY_ICONS[c] || '🏷️'} ${escapeHtml(c)}</span>
+      <span class="cat-sum-amt">${formatMoney(byCat[c])}</span>
+    </label>`;
+  }).join('');
+  box.innerHTML = `
+    <div class="cat-sum-chips">${chips}</div>
+    <div class="cat-sum-total">已選合計：<strong>MOP ${formatMoney(total)}</strong></div>`;
+  box.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const next = [...box.querySelectorAll('input[type=checkbox]:checked')].map(x => x.dataset.cat);
+      saveCustomCatSum(next);
+      renderCustomCatSum();
+    });
+  });
+}
+
+// ========== 代墊 ==========
+function openAdvanceModal() {
+  if (!accounts.length) { alert('請先新增戶口'); return; }
+  let recv = getReceivableAccount();
+  if (!recv) {
+    // 自動建立唯一應收帳款戶口
+    recv = {
+      id: 'recv_' + Date.now(),
+      name: '應收帳款',
+      type: '應收帳款',
+      balances: { MOP: 0, HKD: 0, CNY: 0 },
+      note: '',
+      linkedBankId: '', interestRate: 0, interestPeriod: 'yearly', lastInterestDate: ''
+    };
+    accounts.push(recv);
+    saveJSON(ACCOUNTS_KEY, accounts);
+  }
+  $('#advance-form').reset();
+  $('#advance-date').valueAsDate = new Date();
+  $('#advance-self').value = 0;
+  $('#advance-recv').value = 0;
+  const paySel = $('#advance-pay-account');
+  paySel.innerHTML = '';
+  accounts.filter(a => a.type !== '應收帳款').forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.id;
+    o.textContent = `${ACCOUNT_TYPE_ICONS[a.type] || ''} ${a.name}`;
+    paySel.appendChild(o);
+  });
+  const catSel = $('#advance-category');
+  if (catSel) {
+    catSel.innerHTML = CATEGORIES.filter(c => !['信用卡還款','收回應收','代墊','利息收入'].includes(c.name))
+      .map(c => `<option value="${c.name}">${c.icon} ${c.name}</option>`).join('');
+  }
+  $('#advance-modal-overlay').classList.remove('hidden');
+}
+function closeAdvanceModal() { $('#advance-modal-overlay')?.classList.add('hidden'); }
+function handleAdvanceSubmit(e) {
+  e.preventDefault();
+  const payId = $('#advance-pay-account').value;
+  const currency = $('#advance-currency').value;
+  const total = Number($('#advance-total').value) || 0;
+  const selfAmt = Number($('#advance-self').value) || 0;
+  const recvAmt = Number($('#advance-recv').value) || 0;
+  if (total <= 0) { alert('請輸入總金額'); return; }
+  if (Math.abs(selfAmt + recvAmt - total) > 0.02) { alert('自費 + 應收 應等於總金額'); return; }
+  if (recvAmt < 0 || selfAmt < 0) { alert('金額不可為負'); return; }
+  const recv = getReceivableAccount();
+  if (!recv) { alert('找不到應收帳款戶口'); return; }
+  const date = $('#advance-date').value;
+  const note = ($('#advance-note').value || '').trim();
+  const category = $('#advance-category')?.value || '其他';
+  const idBase = String(Date.now());
+
+  // 1) 支付戶口扣總額
+  applyBalanceDelta(payId, currency, -total);
+  // 2) 應收加應收金額
+  if (recvAmt > 0) applyBalanceDelta(recv.id, currency, recvAmt);
+
+  // 紀錄：一筆代墊主紀錄（方便列表顯示）
+  const rec = {
+    id: idBase,
+    type: 'expense',
+    amount: total,
+    selfAmount: selfAmt,
+    recvAmount: recvAmt,
+    currency,
+    date,
+    category: selfAmt > 0 ? category : '代墊',
+    accountId: payId,
+    recvAccountId: recv.id,
+    isAdvance: true,
+    note: note || (recvAmt > 0 ? `代墊 ${money(currency, recvAmt)}` : '代墊'),
+    createdAt: new Date().toISOString()
+  };
+  records.push(rec);
+  saveJSON(STORAGE_KEY, records);
+  saveJSON(ACCOUNTS_KEY, accounts);
+  closeAdvanceModal();
+  switchPage(currentPage);
+}
+
+// ========== 收回應收 ==========
+function openCollectModal() {
+  const recv = getReceivableAccount();
+  if (!recv) { alert('尚無應收帳款戶口，請先記一筆代墊'); return; }
+  $('#collect-form').reset();
+  $('#collect-date').valueAsDate = new Date();
+  const toSel = $('#collect-to-account');
+  toSel.innerHTML = '';
+  accounts.filter(a => a.type !== '應收帳款' && a.type !== '信用卡' && a.type !== '電子錢包').forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.id;
+    o.textContent = `${ACCOUNT_TYPE_ICONS[a.type] || ''} ${a.name}`;
+    toSel.appendChild(o);
+  });
+  if (!toSel.options.length) { alert('需要銀行或現金戶口作為收回目標'); return; }
+  $('#collect-modal-overlay').classList.remove('hidden');
+}
+function closeCollectModal() { $('#collect-modal-overlay')?.classList.add('hidden'); }
+function handleCollectSubmit(e) {
+  e.preventDefault();
+  const recv = getReceivableAccount();
+  if (!recv) return;
+  const toId = $('#collect-to-account').value;
+  const currency = $('#collect-currency').value;
+  const amount = Number($('#collect-amount').value) || 0;
+  if (amount <= 0) { alert('請輸入金額'); return; }
+  const date = $('#collect-date').value;
+  const note = ($('#collect-note').value || '').trim();
+
+  // 應收減少、目標戶口增加（不計收入）
+  applyBalanceDelta(recv.id, currency, -amount);
+  applyBalanceDelta(toId, currency, amount);
+
+  const rec = {
+    id: String(Date.now()),
+    type: 'transfer',
+    amount,
+    currency,
+    toAmount: amount,
+    toCurrency: currency,
+    date,
+    category: '收回應收',
+    accountId: recv.id,
+    toAccountId: toId,
+    isCollectReceivable: true,
+    note: note || '收回應收',
+    createdAt: new Date().toISOString()
+  };
+  records.push(rec);
+  saveJSON(STORAGE_KEY, records);
+  saveJSON(ACCOUNTS_KEY, accounts);
+  closeCollectModal();
+  switchPage(currentPage);
+}
+
 function accrueDailyInterest() {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
+  const floorDate = new Date(INTEREST_FLOOR + 'T00:00:00');
   let changed = false;
   accounts.forEach(acc => {
     if (acc.type !== '銀行' || !acc.interestRate || acc.interestPeriod !== 'daily') return;
     let last = acc.lastInterestDate;
-    if (!last) {
-      acc.lastInterestDate = todayStr;
+    // 下限：不早於 INTEREST_FLOOR 的前一天（讓第一筆落在 8/8）
+    const floorPrev = new Date(floorDate);
+    floorPrev.setDate(floorPrev.getDate() - 1);
+    const floorPrevStr = floorPrev.toISOString().slice(0, 10);
+    if (!last || last < floorPrevStr) {
+      last = floorPrevStr;
+      acc.lastInterestDate = last;
       changed = true;
-      return;
     }
     const lastDate = new Date(last + 'T00:00:00');
     const cursor = new Date(lastDate);
     cursor.setDate(cursor.getDate() + 1);
+    // 不早於 floor
+    if (cursor < floorDate) cursor.setTime(floorDate.getTime());
     while (cursor <= today) {
       const dateStr = cursor.toISOString().slice(0, 10);
+      if (dateStr < INTEREST_FLOOR) {
+        cursor.setDate(cursor.getDate() + 1);
+        continue;
+      }
       const dailyRate = (Number(acc.interestRate) / 100) / 365;
       ['MOP', 'HKD', 'CNY'].forEach(cur => {
         const bal = Number(acc.balances?.[cur]) || 0;
@@ -1281,7 +1549,6 @@ function accrueDailyInterest() {
     }
   });
   if (changed) {
-    // dedupe interest records by id
     const seen = new Set();
     records = records.filter(r => {
       if (seen.has(r.id)) return false;
@@ -1291,6 +1558,24 @@ function accrueDailyInterest() {
     saveJSON(STORAGE_KEY, records);
     saveJSON(ACCOUNTS_KEY, accounts);
   }
+  return changed;
+}
+
+function startInterestAutoAccrue() {
+  // 每 15 分鐘檢查一次；頁面重新可見時也檢查
+  if (startInterestAutoAccrue._timer) return;
+  startInterestAutoAccrue._timer = setInterval(() => {
+    if (accrueDailyInterest()) {
+      if (currentPage === 'monthly' || currentPage === 'accounts') switchPage(currentPage);
+    }
+  }, 15 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      if (accrueDailyInterest()) {
+        if (currentPage === 'monthly' || currentPage === 'accounts') switchPage(currentPage);
+      }
+    }
+  });
 }
 
 function openAddLiabilityModal() {
@@ -1342,7 +1627,7 @@ function mpfToMOP(a) {
 function renderAssets() {
   let bankMop = 0, otherMop = 0;
   accounts.forEach(a => {
-    if (a.type === '電子錢包' || a.type === '信用卡') return; // 信用卡不計入資產頁
+    if (a.type === '電子錢包' || a.type === '信用卡' || a.type === '應收帳款') return; // 信用卡／應收不計入資產頁
     const mop = balancesToMOP(a.balances);
     if (a.type === '銀行') bankMop += mop;
     else otherMop += mop; // 現金、投資、其他
@@ -1364,9 +1649,9 @@ function renderAssets() {
 
   // 分布：強積金 / 銀行 / 其他（不含信用卡）
   const chartItems = [
-    { label: '🏛️ 強積金', value: mpfTotal },
-    { label: '🏦 銀行戶口', value: bankMop },
-    { label: '📦 其他資產', value: otherMop }
+    { label: '������️ 強積金', value: mpfTotal },
+    { label: '������ 銀行戶口', value: bankMop },
+    { label: '������ 其他資產', value: otherMop }
   ].filter(i => i.value > 0);
 
   if (!chartItems.length) {
@@ -1378,7 +1663,7 @@ function renderAssets() {
     renderBarList($('#assetsAccountBars'), chartItems);
     const byCur = { MOP: 0, HKD: 0, CNY: 0 };
     accounts.forEach(a => {
-      if (a.type === '電子錢包' || a.type === '信用卡') return;
+      if (a.type === '電子錢包' || a.type === '信用卡' || a.type === '應收帳款') return;
       byCur.MOP += Number(a.balances?.MOP || 0);
       byCur.HKD += toMOP(a.balances?.HKD || 0, 'HKD');
       byCur.CNY += toMOP(a.balances?.CNY || 0, 'CNY');
@@ -1393,13 +1678,13 @@ function renderAssets() {
   detailEl.innerHTML = '';
   // 依分類列出；點類型才展開戶口（排除信用卡、電子錢包）
   const detailGroups = [
-    { key: '銀行', title: '🏦 銀行', list: accounts.filter(a => a.type === '銀行') },
-    { key: '現金', title: '💵 現金', list: accounts.filter(a => a.type === '現金') },
-    { key: '投資', title: '📈 投資', list: accounts.filter(a => a.type === '投資') },
-    { key: '其他', title: '🏷️ 其他', list: accounts.filter(a => a.type === '其他') },
+    { key: '銀行', title: '������ 銀行', list: accounts.filter(a => a.type === '銀行') },
+    { key: '現金', title: '������ 現金', list: accounts.filter(a => a.type === '現金') },
+    { key: '投資', title: '������ 投資', list: accounts.filter(a => a.type === '投資') },
+    { key: '其他', title: '������️ 其他', list: accounts.filter(a => a.type === '其他') },
     {
       key: '強積金',
-      title: '🏛️ 強積金',
+      title: '������️ 強積金',
       list: (mpfData.accounts || []).map(m => {
         const cur = mpfCurrency(m);
         const bal = Number(m.balance) || 0;
