@@ -791,3 +791,41 @@ body {
 .month-bar.month-bar-list .exp { color: var(--expense); }
 .month-bar.month-bar-list .bal.positive { color: var(--income); }
 .month-bar.month-bar-list .bal.negative { color: var(--expense); }
+
+/* 自訂支出加總 */
+.cat-sum-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cat-sum-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: #f9fafb;
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+.cat-sum-chip input { accent-color: var(--primary); }
+.cat-sum-chip.active {
+  border-color: var(--primary);
+  background: #eef2ff;
+  color: var(--primary);
+  font-weight: 650;
+}
+.cat-sum-chip .cat-sum-amt {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+.cat-sum-chip.active .cat-sum-amt { color: var(--primary); }
+.cat-sum-total {
+  font-size: 0.9rem;
+  font-weight: 650;
+  padding-top: 4px;
+}
