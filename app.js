@@ -102,9 +102,13 @@ function isAdvance(r) {
 function isCollectReceivable(r) {
   return !!(r && (r.isCollectReceivable || r.category === '收回應收'));
 }
+/** 日息／利息：只進戶口流水，不計入收入 */
+function isInterest(r) {
+  return !!(r && (r.isInterest || r.category === '利息收入'));
+}
 /** 不計入消費支出／收入的特殊紀錄 */
 function isNonOperating(r) {
-  return isTransfer(r) || isAdvance(r) || isCollectReceivable(r);
+  return isTransfer(r) || isAdvance(r) || isCollectReceivable(r) || isInterest(r);
 }
 function getReceivableAccount() {
   return accounts.find(a => a.type === '應收帳款') || null;
@@ -488,6 +492,7 @@ function getMonthRecords() {
 
 function getFilteredMonthRecords() {
   return getMonthRecords().filter(r => {
+    if (isInterest(r)) return false; // 日息只顯示在戶口流水
     if (filters.type && r.type !== filters.type) return false;
     if (filters.category && r.category !== filters.category) return false;
     if (filters.account && r.accountId !== filters.account && r.displayAccountId !== filters.account) return false;
@@ -528,7 +533,7 @@ function renderMonthly() {
   // 結餘：收入 − 消費支出
   let income = 0, consumption = 0, ccPurchase = 0, repayment = 0;
   getMonthRecords().forEach(r => {
-    if (isTransfer(r) || isAdvance(r) || isCollectReceivable(r)) return;
+    if (isTransfer(r) || isAdvance(r) || isCollectReceivable(r) || isInterest(r)) return;
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') income += amt;
     else if (isRepayment(r)) repayment += amt;
@@ -631,7 +636,7 @@ function renderYearly() {
   const monthsInc = Array(12).fill(0);
   const monthsExp = Array(12).fill(0); // 各月消費支出（含刷卡、不含還款）
   yearRecs.forEach(r => {
-    if (isTransfer(r) || isAdvance(r) || isCollectReceivable(r)) return;
+    if (isTransfer(r) || isAdvance(r) || isCollectReceivable(r) || isInterest(r)) return;
     const m = new Date(r.date).getMonth();
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') { income += amt; monthsInc[m] += amt; }
@@ -958,6 +963,11 @@ function resolveEffectAccount(rec) {
 
 function reverseRecordEffect(rec) {
   if (!rec) return;
+  if (isInterest(rec)) {
+    // 日息：扣回已加的利息
+    applyBalanceDelta(rec.accountId, rec.currency, -(Number(rec.amount) || 0));
+    return;
+  }
   if (isAdvance(rec)) {
     const total = Number(rec.amount) || 0;
     const recvAmt = Number(rec.recvAmount) || 0;
@@ -1498,57 +1508,80 @@ function handleCollectSubmit(e) {
 
 function accrueDailyInterest() {
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().slice(0, 10);
-  const floorDate = new Date(INTEREST_FLOOR + 'T00:00:00');
+  const floorStr = INTEREST_FLOOR; // '2026-08-08'
   let changed = false;
+
   accounts.forEach(acc => {
-    if (acc.type !== '銀行' || !acc.interestRate || acc.interestPeriod !== 'daily') return;
-    let last = acc.lastInterestDate;
-    // 下限：不早於 INTEREST_FLOOR 的前一天（讓第一筆落在 8/8）
-    const floorPrev = new Date(floorDate);
-    floorPrev.setDate(floorPrev.getDate() - 1);
-    const floorPrevStr = floorPrev.toISOString().slice(0, 10);
-    if (!last || last < floorPrevStr) {
-      last = floorPrevStr;
-      acc.lastInterestDate = last;
+    if (acc.type !== '銀行' || !(Number(acc.interestRate) > 0) || acc.interestPeriod !== 'daily') return;
+
+    // 上次已計到哪一天；沒有或早於下限前一天 → 從下限前一天起算（第一筆落在 floor）
+    const floorPrev = (() => {
+      const d = new Date(floorStr + 'T00:00:00');
+      d.setDate(d.getDate() - 1);
+      return d.toISOString().slice(0, 10);
+    })();
+    let last = acc.lastInterestDate || '';
+    if (!last || last < floorPrev) last = floorPrev;
+
+    const cursor = new Date(last + 'T00:00:00');
+    cursor.setDate(cursor.getDate() + 1); // 從「隔天」開始
+
+    const dailyRate = (Number(acc.interestRate) / 100) / 365;
+    if (!(dailyRate > 0)) {
+      acc.lastInterestDate = todayStr;
       changed = true;
+      return;
     }
-    const lastDate = new Date(last + 'T00:00:00');
-    const cursor = new Date(lastDate);
-    cursor.setDate(cursor.getDate() + 1);
-    // 不早於 floor
-    if (cursor < floorDate) cursor.setTime(floorDate.getTime());
-    while (cursor <= today) {
+
+    while (cursor.getTime() <= today.getTime()) {
       const dateStr = cursor.toISOString().slice(0, 10);
-      if (dateStr < INTEREST_FLOOR) {
+      if (dateStr < floorStr) {
         cursor.setDate(cursor.getDate() + 1);
         continue;
       }
-      const dailyRate = (Number(acc.interestRate) / 100) / 365;
+
+      // 以「計息當日開始前的餘額」計息，再把利息加回（日複利）
+      let dayHasInterest = false;
       ['MOP', 'HKD', 'CNY'].forEach(cur => {
         const bal = Number(acc.balances?.[cur]) || 0;
         if (bal <= 0) return;
         const interest = Math.round(bal * dailyRate * 100) / 100;
         if (interest < 0.01) return;
-        acc.balances[cur] = bal + interest;
-        records.push({
-          id: `${acc.id}_${dateStr}_${cur}`,
-          type: 'income',
-          amount: interest,
-          currency: cur,
-          date: dateStr,
-          category: '利息收入',
-          accountId: acc.id,
-          note: `日息 ${acc.interestRate}%`,
-          createdAt: new Date().toISOString()
-        });
+
+        if (!acc.balances) acc.balances = { MOP: 0, HKD: 0, CNY: 0 };
+        acc.balances[cur] = Math.round((bal + interest) * 100) / 100;
+
+        // 只寫入戶口流水：標記 isInterest，不計入本月收入
+        const recId = `${acc.id}_${dateStr}_${cur}`;
+        const exists = records.some(r => r.id === recId);
+        if (!exists) {
+          records.push({
+            id: recId,
+            type: 'income',          // 流水顯示為「＋」
+            isInterest: true,        // 摘要排除
+            amount: interest,
+            currency: cur,
+            date: dateStr,
+            category: '利息收入',
+            accountId: acc.id,
+            note: `日息 ${acc.interestRate}%（餘額 ${formatMoney(bal)}）`,
+            createdAt: new Date().toISOString()
+          });
+        }
+        dayHasInterest = true;
         changed = true;
       });
+
       acc.lastInterestDate = dateStr;
+      changed = true;
       cursor.setDate(cursor.getDate() + 1);
     }
   });
+
   if (changed) {
+    // 去重（保險）
     const seen = new Set();
     records = records.filter(r => {
       if (seen.has(r.id)) return false;
