@@ -222,7 +222,7 @@ function updateAuthButton() {
   if (!btn) return;
   if (!firebaseReady) {
     btn.title = '未設定 Firebase';
-    btn.textContent = '������';
+    btn.textContent = '👤';
     btn.classList.remove('logged-in');
     return;
   }
@@ -232,7 +232,7 @@ function updateAuthButton() {
     btn.classList.add('logged-in');
   } else {
     btn.title = 'Google 登入';
-    btn.textContent = '������';
+    btn.textContent = '👤';
     btn.classList.remove('logged-in');
   }
 }
@@ -564,17 +564,28 @@ function renderMonthly() {
 }
 
 function renderMonthBars() {
-  const list = getMonthRecords().filter(r => r.type === 'expense' && !isRepayment(r) && !isAdvance(r) && !isCollectReceivable(r));
-  if (!list.length) {
+  const byCat = {};
+  getMonthRecords().forEach(r => {
+    if (isRepayment(r) || isCollectReceivable(r) || isInterest(r) || isTransfer(r)) return;
+    if (isAdvance(r)) {
+      const selfAmt = Number(r.selfAmount) || 0;
+      if (selfAmt <= 0) return;
+      const c = r.category || '其他';
+      byCat[c] = (byCat[c] || 0) + toMOP(selfAmt, r.currency);
+      return;
+    }
+    if (r.type !== 'expense') return;
+    const c = r.category || '其他';
+    byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency);
+  });
+  const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  if (!sorted.length) {
     $('#categoryBars').innerHTML = '';
     $('#no-chart-data').style.display = 'block';
     return;
   }
   $('#no-chart-data').style.display = 'none';
-  const byCat = {};
-  list.forEach(r => { const c = r.category || '其他'; byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency); });
-  const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-  renderBarList($('#categoryBars'), sorted.map(([c, v]) => ({ label: `${CATEGORY_ICONS[c] || '������️'} ${c}`, value: v })));
+  renderBarList($('#categoryBars'), sorted.map(([c, v]) => ({ label: `${CATEGORY_ICONS[c] || '🏷️'} ${c}`, value: v })));
 }
 
 function renderMonthRecords() {
@@ -588,7 +599,7 @@ function renderMonthRecords() {
   }
   $('#no-records').style.display = 'none';
   list.forEach(r => {
-    const icon = isTransfer(r) ? '⇄' : (CATEGORY_ICONS[r.category] || '������️');
+    const icon = isTransfer(r) ? '⇄' : (CATEGORY_ICONS[r.category] || '🏷️');
     const acc = accounts.find(a => a.id === (r.displayAccountId || r.accountId));
     const toAcc = r.toAccountId ? accounts.find(a => a.id === r.toAccountId) : null;
     const wallet = r.viaWalletId ? accounts.find(a => a.id === r.viaWalletId) : null;
@@ -644,8 +655,13 @@ function renderYearly() {
   const monthsInc = Array(12).fill(0);
   const monthsExp = Array(12).fill(0); // 各月消費支出（含刷卡、不含還款）
   yearRecs.forEach(r => {
-    if (isTransfer(r) || isAdvance(r) || isCollectReceivable(r) || isInterest(r)) return;
+    if (isTransfer(r) || isCollectReceivable(r) || isInterest(r)) return;
     const m = new Date(r.date).getMonth();
+    if (isAdvance(r)) {
+      const selfAmt = toMOP(r.selfAmount != null ? r.selfAmount : 0, r.currency);
+      if (selfAmt > 0) { consumption += selfAmt; monthsExp[m] += selfAmt; }
+      return;
+    }
     const amt = toMOP(r.amount, r.currency);
     if (r.type === 'income') { income += amt; monthsInc[m] += amt; }
     else if (isRepayment(r)) { /* 還款不計入消費支出 */ }
@@ -655,16 +671,27 @@ function renderYearly() {
   $('#year-expense').textContent = money('MOP', consumption);
   $('#year-balance').textContent = money('MOP', income - consumption);
 
-  const expRecs = yearRecs.filter(r => r.type === 'expense' && !isRepayment(r) && !isAdvance(r) && !isCollectReceivable(r));
-  if (!expRecs.length) {
+  const byCat = {};
+  yearRecs.forEach(r => {
+    if (isRepayment(r) || isCollectReceivable(r) || isInterest(r) || isTransfer(r)) return;
+    if (isAdvance(r)) {
+      const selfAmt = Number(r.selfAmount) || 0;
+      if (selfAmt <= 0) return;
+      const c = r.category || '其他';
+      byCat[c] = (byCat[c] || 0) + toMOP(selfAmt, r.currency);
+      return;
+    }
+    if (r.type !== 'expense') return;
+    const c = r.category || '其他';
+    byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency);
+  });
+  if (!Object.keys(byCat).length) {
     $('#yearlyCategoryBars').innerHTML = '';
     $('#no-year-cat-data').style.display = 'block';
   } else {
     $('#no-year-cat-data').style.display = 'none';
-    const byCat = {};
-    expRecs.forEach(r => { const c = r.category || '其他'; byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency); });
     const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-    renderBarList($('#yearlyCategoryBars'), sorted.map(([c, v]) => ({ label: `${CATEGORY_ICONS[c] || '������️'} ${c}`, value: v })));
+    renderBarList($('#yearlyCategoryBars'), sorted.map(([c, v]) => ({ label: `${CATEGORY_ICONS[c] || '🏷️'} ${c}`, value: v })));
   }
 
   const listEl = $('#yearly-months-list');
@@ -1349,9 +1376,17 @@ function saveCustomCatSum(cats) {
 function renderCustomCatSum() {
   const box = $('#custom-cat-sum');
   if (!box) return;
-  const list = getMonthRecords().filter(r => r.type === 'expense' && !isRepayment(r) && !isAdvance(r) && !isCollectReceivable(r));
   const byCat = {};
-  list.forEach(r => {
+  getMonthRecords().forEach(r => {
+    if (isRepayment(r) || isCollectReceivable(r) || isInterest(r) || isTransfer(r)) return;
+    if (isAdvance(r)) {
+      const selfAmt = Number(r.selfAmount) || 0;
+      if (selfAmt <= 0) return;
+      const c = r.category || '其他';
+      byCat[c] = (byCat[c] || 0) + toMOP(selfAmt, r.currency);
+      return;
+    }
+    if (r.type !== 'expense') return;
     const c = r.category || '其他';
     byCat[c] = (byCat[c] || 0) + toMOP(r.amount, r.currency);
   });
@@ -1614,21 +1649,48 @@ function accrueDailyInterest() {
 }
 
 function startInterestAutoAccrue() {
-  // 每 15 分鐘檢查一次；頁面重新可見時也檢查
-  if (startInterestAutoAccrue._timer) return;
+  if (startInterestAutoAccrue._started) return;
+  startInterestAutoAccrue._started = true;
+
+  function msUntilNext0001() {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(0, 1, 0, 0); // 今天 00:01
+    if (now >= next) next.setDate(next.getDate() + 1); // 已過則明天 00:01
+    return next.getTime() - now.getTime();
+  }
+
+  function scheduleMidnight() {
+    const wait = msUntilNext0001();
+    clearTimeout(startInterestAutoAccrue._midnightTimer);
+    startInterestAutoAccrue._midnightTimer = setTimeout(() => {
+      if (accrueDailyInterest()) {
+        if (currentPage === 'monthly' || currentPage === 'accounts') switchPage(currentPage);
+      }
+      scheduleMidnight(); // 排下一次
+    }, wait);
+  }
+
+  scheduleMidnight();
+
+  // 備用：每 30 分鐘檢查（避免定時器被瀏覽器節流漏掉）
+  clearInterval(startInterestAutoAccrue._timer);
   startInterestAutoAccrue._timer = setInterval(() => {
     if (accrueDailyInterest()) {
       if (currentPage === 'monthly' || currentPage === 'accounts') switchPage(currentPage);
     }
-  }, 15 * 60 * 1000);
+  }, 30 * 60 * 1000);
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       if (accrueDailyInterest()) {
         if (currentPage === 'monthly' || currentPage === 'accounts') switchPage(currentPage);
       }
+      scheduleMidnight(); // 重新對齊 00:01
     }
   });
 }
+
 
 function openAddLiabilityModal() {
   $('#liability-modal-title').textContent = '新增扣減項';
@@ -1701,9 +1763,9 @@ function renderAssets() {
 
   // 分布：強積金 / 銀行 / 其他（不含信用卡）
   const chartItems = [
-    { label: '������️ 強積金', value: mpfTotal },
-    { label: '������ 銀行戶口', value: bankMop },
-    { label: '������ 其他資產', value: otherMop }
+    { label: '🏛️ 強積金', value: mpfTotal },
+    { label: '🏦 銀行戶口', value: bankMop },
+    { label: '💼 其他資產', value: otherMop }
   ].filter(i => i.value > 0);
 
   if (!chartItems.length) {
@@ -1730,13 +1792,13 @@ function renderAssets() {
   detailEl.innerHTML = '';
   // 依分類列出；點類型才展開戶口（排除信用卡、電子錢包）
   const detailGroups = [
-    { key: '銀行', title: '������ 銀行', list: accounts.filter(a => a.type === '銀行') },
-    { key: '現金', title: '������ 現金', list: accounts.filter(a => a.type === '現金') },
-    { key: '投資', title: '������ 投資', list: accounts.filter(a => a.type === '投資') },
-    { key: '其他', title: '������️ 其他', list: accounts.filter(a => a.type === '其他') },
+    { key: '銀行', title: '🏦 銀行', list: accounts.filter(a => a.type === '銀行') },
+    { key: '現金', title: '💵 現金', list: accounts.filter(a => a.type === '現金') },
+    { key: '投資', title: '📈 投資', list: accounts.filter(a => a.type === '投資') },
+    { key: '其他', title: '🏷️ 其他', list: accounts.filter(a => a.type === '其他') },
     {
       key: '強積金',
-      title: '������️ 強積金',
+      title: '🏛️ 強積金',
       list: (mpfData.accounts || []).map(m => {
         const cur = mpfCurrency(m);
         const bal = Number(m.balance) || 0;
