@@ -829,3 +829,17 @@ body {
   font-weight: 650;
   padding-top: 4px;
 }
+
+
+/* prevent iOS input zoom：輸入框字級至少 16px */
+@media (max-width: 640px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+  .form-row input, .form-row select,
+  .amount-row input, .amount-row select,
+  .filter-row input, .filter-row select,
+  .mc-row input, .adjust-box input, .adjust-box select {
+    font-size: 16px !important;
+  }
+}
