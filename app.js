@@ -54,13 +54,30 @@ function escapeHtml(str) {
   d.textContent = str;
   return d.innerHTML;
 }
+function scopedKey(key) {
+  // 已登入：本機快取依 uid 分開；未登入：使用訪客鍵
+  return (currentUser && currentUser.uid) ? `${key}__${currentUser.uid}` : key;
+}
 function loadJSON(key, fallback) {
-  try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : fallback; }
-  catch { return fallback; }
+  try {
+    const d = localStorage.getItem(scopedKey(key));
+    return d ? JSON.parse(d) : fallback;
+  } catch { return fallback; }
+}
+function loadJSONRaw(key, fallback) {
+  // 強制讀取未加 uid 的訪客鍵
+  try {
+    const d = localStorage.getItem(key);
+    return d ? JSON.parse(d) : fallback;
+  } catch { return fallback; }
 }
 function saveJSON(key, val) {
+  localStorage.setItem(scopedKey(key), JSON.stringify(val));
+  // 只有已登入才同步到該帳戶雲端；訪客資料絕不寫入任何帳戶
+  if (currentUser) scheduleCloudSync();
+}
+function saveJSONRaw(key, val) {
   localStorage.setItem(key, JSON.stringify(val));
-  scheduleCloudSync();
 }
 
 function loadRates() {
@@ -211,10 +228,15 @@ function initFirebase() {
     db = firebase.database();
     firebaseReady = true;
     auth.onAuthStateChanged(async user => {
+      const prev = currentUser;
       currentUser = user;
       updateAuthButton();
       if (user) {
         await onUserSignedIn(user);
+      } else if (prev) {
+        // 登出：還原訪客本機資料，不把帳戶資料留在訪客鍵
+        loadGuestDataIntoMemory();
+        switchPage(currentPage);
       }
     });
   } catch (err) {
@@ -243,33 +265,98 @@ function updateAuthButton() {
   }
 }
 
-async function onUserSignedIn(user) {
-  const snap = await db.ref('users/' + user.uid).once('value');
-  const cloud = snap.val();
-  if (!cloud || (!cloud.records && !cloud.accounts)) {
-    // 雲端無資料 → 詢問是否上傳本機
-    if (records.length || accounts.length) {
-      const ok = confirm('偵測到本機有資料，雲端為空。是否上傳本機資料到雲端？');
-      if (ok) await pushAllToCloud();
+function applyDataPayload(data) {
+  records = Array.isArray(data.records) ? data.records : [];
+  accounts = Array.isArray(data.accounts) ? data.accounts : [];
+  liabilities = Array.isArray(data.liabilities) ? data.liabilities : [];
+  mpfData = (data.mpfData && Array.isArray(data.mpfData.accounts))
+    ? data.mpfData
+    : { accounts: [] };
+  rates = data.rates
+    ? { ...DEFAULT_RATES, ...data.rates, MOP: 1 }
+    : { ...DEFAULT_RATES };
+}
+
+function loadGuestDataIntoMemory() {
+  // 讀取訪客鍵（不加 uid）
+  records = loadJSONRaw(STORAGE_KEY, []);
+  try { records = JSON.parse(JSON.stringify(records)); } catch (_) {}
+  accounts = loadJSONRaw(ACCOUNTS_KEY, []);
+  accounts = (accounts || []).map(a => {
+    if (a.balances) {
+      return {
+        ...a,
+        linkedBankId: a.linkedBankId || '',
+        interestRate: a.interestRate || 0,
+        interestPeriod: a.interestPeriod || 'yearly',
+        lastInterestDate: a.lastInterestDate || ''
+      };
     }
-  } else {
-    // 雲端有資料 → 下載覆蓋本機快取
-    if (cloud.records) records = cloud.records;
-    if (cloud.accounts) accounts = cloud.accounts;
-    if (cloud.liabilities) liabilities = cloud.liabilities;
-    if (cloud.mpfData) mpfData = cloud.mpfData;
-    if (cloud.rates) rates = { ...DEFAULT_RATES, ...cloud.rates, MOP: 1 };
-    persistLocal();
-    switchPage(currentPage);
-  }
+    const bal = { MOP: 0, HKD: 0, CNY: 0 };
+    if (a.currency && a.balance != null) bal[a.currency] = Number(a.balance);
+    return {
+      id: a.id, name: a.name, type: a.type, balances: bal, note: a.note || '',
+      linkedBankId: '', interestRate: 0, interestPeriod: 'yearly', lastInterestDate: ''
+    };
+  });
+  liabilities = loadJSONRaw(LIABILITIES_KEY, []);
+  mpfData = loadJSONRaw(MPF_KEY, { accounts: [] });
+  if (!mpfData || !mpfData.accounts) mpfData = { accounts: [] };
+  const p = loadJSONRaw(RATES_KEY, null);
+  rates = p ? { ...DEFAULT_RATES, ...p, MOP: 1 } : { ...DEFAULT_RATES };
 }
 
 function persistLocal() {
+  // 依目前登入狀態寫入對應鍵（訪客鍵或 uid 鍵）；已登入才會觸發雲端同步
   saveJSON(STORAGE_KEY, records);
   saveJSON(ACCOUNTS_KEY, accounts);
   saveJSON(LIABILITIES_KEY, liabilities);
   saveJSON(MPF_KEY, mpfData);
   saveRatesObj(rates);
+}
+
+function persistGuestSnapshotFromMemory() {
+  // 登入前把目前記憶體（訪客）寫回訪客鍵，避免被帳戶資料覆蓋
+  saveJSONRaw(STORAGE_KEY, records);
+  saveJSONRaw(ACCOUNTS_KEY, accounts);
+  saveJSONRaw(LIABILITIES_KEY, liabilities);
+  saveJSONRaw(MPF_KEY, mpfData);
+  saveJSONRaw(RATES_KEY, { HKD: rates.HKD, CNY: rates.CNY, HKD_CNY: rates.HKD_CNY });
+}
+
+async function onUserSignedIn(user) {
+  // 先保存訪客資料到訪客鍵，稍後登出可還原；絕不把訪客資料自動寫入此帳戶
+  if (!onUserSignedIn._guestSaved) {
+    persistGuestSnapshotFromMemory();
+    onUserSignedIn._guestSaved = true;
+  }
+
+  let cloud = null;
+  try {
+    const snap = await db.ref('users/' + user.uid).once('value');
+    cloud = snap.val();
+  } catch (err) {
+    console.error(err);
+    alert('讀取雲端資料失敗：' + (err.message || err));
+  }
+
+  if (cloud && (cloud.records || cloud.accounts || cloud.mpfData || cloud.liabilities)) {
+    // 僅載入此帳戶雲端資料
+    applyDataPayload(cloud);
+  } else {
+    // 此帳戶尚無資料 → 使用空白資料，不合併訪客本機資料
+    applyDataPayload({
+      records: [],
+      accounts: [],
+      liabilities: [],
+      mpfData: { accounts: [] },
+      rates: { ...DEFAULT_RATES }
+    });
+  }
+
+  // 寫入此 uid 的本機快取（不會動到訪客鍵）
+  persistLocal();
+  switchPage(currentPage);
 }
 
 /** Firebase RTDB 不接受 undefined，用 JSON 去掉後再寫入 */
@@ -309,8 +396,16 @@ async function handleAuthClick() {
     return;
   }
   if (currentUser) {
-    if (confirm('確定要登出？')) await auth.signOut();
+    if (confirm('確定要登出？')) {
+      // 登出前先把目前帳戶資料推上雲端
+      try { await pushAllToCloud(); } catch (_) {}
+      onUserSignedIn._guestSaved = false;
+      await auth.signOut();
+    }
   } else {
+    // 登入前先把訪客資料存好
+    persistGuestSnapshotFromMemory();
+    onUserSignedIn._guestSaved = true;
     const provider = new firebase.auth.GoogleAuthProvider();
     try {
       await auth.signInWithPopup(provider);
@@ -433,7 +528,9 @@ function init() {
   $('#btn-csv-mpf').addEventListener('click', exportMpfCSV);
   $('#btn-backup-export').addEventListener('click', exportBackup);
   $('#btn-backup-import').addEventListener('click', () => $('#import-file').click());
-    $('#import-file').addEventListener('change', importBackup);
+  $('#import-file').addEventListener('change', importBackup);
+  const btnClearAll = $('#btn-clear-all');
+  if (btnClearAll) btnClearAll.addEventListener('click', clearAllData);
 
   // 存錢
   const btnSav = $('#btn-savings');
@@ -2561,6 +2658,56 @@ function exportMpfCSV() {
   const csv = '\uFEFF' + [headers, ...rows].map(row => row.map(csvEscape).join(',')).join('\n');
   downloadFile(`強積金_${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv;charset=utf-8');
   $('#export-modal-overlay').classList.add('hidden');
+}
+
+async function clearAllData() {
+  const ok1 = confirm('確定要清空所有資料？\n\n包含：記帳紀錄、戶口、強積金、扣減項、匯率設定。\n此操作無法復原，建議先導出備份。');
+  if (!ok1) return;
+  const ok2 = confirm('再次確認：真的要永久刪除全部資料嗎？');
+  if (!ok2) return;
+
+  records = [];
+  accounts = [];
+  liabilities = [];
+  mpfData = { accounts: [] };
+  rates = { ...DEFAULT_RATES };
+  filters = { type: '', category: '', account: '', currency: '' };
+  expandedAccountId = null;
+  expandedAccountTypes = null;
+  expandedMpfId = null;
+  expandedAssetGroup = null;
+  sectionCollapseState = { accounts: false, mpf: false, liabilities: false };
+
+  try {
+    localStorage.removeItem(scopedKey(STORAGE_KEY));
+    localStorage.removeItem(scopedKey(ACCOUNTS_KEY));
+    localStorage.removeItem(scopedKey(LIABILITIES_KEY));
+    localStorage.removeItem(scopedKey(MPF_KEY));
+    localStorage.removeItem(scopedKey(RATES_KEY));
+    localStorage.removeItem(scopedKey(CUSTOM_CAT_SUM_KEY));
+    localStorage.removeItem(scopedKey(YEAR_CUSTOM_CAT_SUM_KEY));
+  } catch (_) {}
+
+  // 雲端同步清空（若已登入）
+  if (firebaseReady && currentUser && db) {
+    try {
+      await db.ref('users/' + currentUser.uid).set({
+        records: [],
+        accounts: [],
+        liabilities: [],
+        mpfData: { accounts: [] },
+        rates: { HKD: rates.HKD, CNY: rates.CNY, HKD_CNY: rates.HKD_CNY },
+        updatedAt: Date.now()
+      });
+    } catch (err) {
+      console.error(err);
+      alert('本機已清空，但雲端同步失敗：' + (err.message || err));
+    }
+  }
+
+  $('#export-modal-overlay').classList.add('hidden');
+  alert('已清空所有資料');
+  switchPage(currentPage);
 }
 
 function exportBackup() {
